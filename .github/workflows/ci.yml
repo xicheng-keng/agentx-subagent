@@ -24,7 +24,7 @@ jobs:
     name: C tests (matched LMDB, valgrind, -Werror)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install C toolchain and LMDB/net-snmp headers
         run: |
@@ -86,7 +86,7 @@ jobs:
       run:
         working-directory: rust-app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rust-app/build.rs runs prost-build over ../proto/agentx_ipc.proto,
       # which shells out to protoc. Hosted runners do not ship it, so every
@@ -131,7 +131,7 @@ jobs:
     name: Generated code drift check (mib2c + nanopb)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mib2c, protoc and the nanopb generator's dependencies
         run: |
@@ -173,7 +173,7 @@ jobs:
     name: Cross-process integration suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install C toolchain, LMDB/net-snmp headers, and snmpd/snmp tools
         run: |
@@ -241,7 +241,7 @@ jobs:
       matrix:
         stage: [build, test, runtime]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
@@ -260,7 +260,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # -x -P tests: the scenario_*.sh scripts `source
       # "$(dirname "${BASH_SOURCE[0]}")/common.sh"` -- a dynamically
