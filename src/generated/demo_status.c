@@ -86,6 +86,8 @@ handle_cpuTempMilliC(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env = cache_env; /* read-only: always cache.lmdb */
 
     switch (reqinfo->mode) {
@@ -127,6 +129,8 @@ handle_sampleCount(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env = cache_env; /* read-only: always cache.lmdb */
 
     switch (reqinfo->mode) {
@@ -168,6 +172,8 @@ handle_lastUpdateEpoch(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env = cache_env; /* read-only: always cache.lmdb */
 
     switch (reqinfo->mode) {
@@ -209,6 +215,8 @@ handle_statusText(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env = cache_env; /* read-only: always cache.lmdb */
 
     switch (reqinfo->mode) {

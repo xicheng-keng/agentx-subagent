@@ -90,6 +90,8 @@ handle_deviceName(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env;
 
 #if STORAGE_MODE_deviceName == STORAGE_MODE_PERSISTENT
@@ -132,7 +134,7 @@ handle_deviceName(netsnmp_mib_handler *handler,
                 netsnmp_set_request_error(reqinfo, requests, SNMP_ERR_WRONGTYPE);
                 break;
             }
-            if (requests->requestvb->val_len < (size_t)(0) ||
+            if (
                 requests->requestvb->val_len > (size_t)(63)) {
                 netsnmp_set_request_error(reqinfo, requests, SNMP_ERR_WRONGLENGTH);
                 break;
@@ -229,6 +231,8 @@ handle_tempThresholdMilliC(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env;
 
 #if STORAGE_MODE_tempThresholdMilliC == STORAGE_MODE_PERSISTENT
@@ -370,6 +374,8 @@ handle_adminStatusExt(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env;
 
 #if STORAGE_MODE_adminStatusExt == STORAGE_MODE_PERSISTENT
@@ -510,6 +516,8 @@ handle_sampleIntervalSec(netsnmp_mib_handler *handler,
           netsnmp_agent_request_info *reqinfo,
           netsnmp_request_info *requests)
 {
+    (void)handler;
+    (void)reginfo;
     storage_env_t *env;
 
 #if STORAGE_MODE_sampleIntervalSec == STORAGE_MODE_PERSISTENT
