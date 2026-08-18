@@ -78,4 +78,13 @@ if(AGENTX_BUILD_TESTS)
       add_test(NAME ${t} COMMAND ${t})
     endif()
   endforeach()
+
+  # storage_cli: a small helper CLI (get/set/hexdump/watch/bench) used by the
+  # bash cross-process integration scenarios under tests/ (scripts/run-integration.sh).
+  # Not registered as a ctest -- it is driven directly by the shell scripts.
+  if(EXISTS ${CMAKE_SOURCE_DIR}/tests/storage_cli.c AND TARGET agentx_storage)
+    add_executable(storage_cli tests/storage_cli.c)
+    target_include_directories(storage_cli PRIVATE include)
+    target_link_libraries(storage_cli PRIVATE agentx_storage)
+  endif()
 endif()
