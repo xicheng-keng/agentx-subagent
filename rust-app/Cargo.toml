@@ -1,0 +1,27 @@
+[package]
+name = "agentx-rust-app"
+version = "0.1.0"
+edition = "2021"
+description = "Rust telemetry app + IPC client for the AgentX C subagent (docs/design.md)"
+publish = false
+
+[[bin]]
+name = "telemetry"
+path = "src/bin/telemetry.rs"
+
+[[bin]]
+name = "loadgen"
+path = "src/bin/loadgen.rs"
+
+[dependencies]
+heed = "0.20"
+prost = "0.13"
+thiserror = "1.0"
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[dev-dependencies]
+tempfile = "3"
