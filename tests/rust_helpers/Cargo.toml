@@ -1,0 +1,13 @@
+[package]
+name = "agentx-it-helpers"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust-side helper CLI for the bash cross-process integration scenarios under tests/ (not part of the product; depends on rust-app as a path dependency, read-only)."
+
+[[bin]]
+name = "it_helper"
+path = "src/main.rs"
+
+[dependencies]
+agentx-rust-app = { path = "../../rust-app" }

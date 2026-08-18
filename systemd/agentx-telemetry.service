@@ -1,0 +1,29 @@
+# The Rust telemetry application. Sole writer of the telemetry keys in
+# cache.lmdb; reads config.lmdb read-only and routes any config write through
+# the subagent's IPC socket (docs/design.md 2.5, 4).
+[Unit]
+Description=AgentX telemetry sampler
+After=agentx-subagent.service
+# Ordering matters: the subagent bootstraps cache.lmdb, so starting before it
+# would open an unseeded environment.
+Requires=agentx-subagent.service
+RequiresMountsFor=/run/agentx-subagent
+
+[Service]
+Type=simple
+User=agentx
+Group=agentx
+ExecStart=/usr/local/bin/telemetry \
+    --cache /run/agentx-subagent/cache.lmdb \
+    --config /var/lib/agentx-subagent/config.lmdb \
+    --ipc /run/agentx-subagent/ipc.sock
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/agentx-subagent
+
+[Install]
+WantedBy=multi-user.target

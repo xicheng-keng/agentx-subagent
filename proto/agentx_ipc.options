@@ -1,0 +1,8 @@
+# nanopb field options — fixed sized buffers keep the C side allocation free.
+agentx.ipc.v1.WriteConfigRequest.key       max_size:64
+agentx.ipc.v1.ReadConfigRequest.key        max_size:64
+agentx.ipc.v1.SendTrapRequest.trap_name    max_size:64
+agentx.ipc.v1.Value.bytes_val              max_size:256
+agentx.ipc.v1.WriteConfigResponse.message  max_size:128
+agentx.ipc.v1.ReadConfigResponse.message   max_size:128
+agentx.ipc.v1.SendTrapResponse.message     max_size:128

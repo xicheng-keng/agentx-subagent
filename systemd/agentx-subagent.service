@@ -1,0 +1,33 @@
+# The C AgentX subagent. It owns config.lmdb (single writer, docs/design.md 2.5)
+# and seeds cache.lmdb with the DEFVALs before anything can read it (2.3).
+[Unit]
+Description=AgentX subagent with LMDB backed MIB storage
+Documentation=https://github.com/xicheng-keng/agentx-subagent
+After=snmpd.service run-agentx\x2dsubagent.mount
+Requires=run-agentx\x2dsubagent.mount
+# snmpd owns the AgentX master socket; without it the subagent has nothing to
+# connect to, but it retries, so Wants rather than Requires.
+Wants=snmpd.service
+RequiresMountsFor=/run/agentx-subagent /var/lib/agentx-subagent
+
+[Service]
+Type=simple
+User=agentx
+Group=agentx
+Environment=AGENTX_CONFIG_DB=/var/lib/agentx-subagent/config.lmdb
+Environment=AGENTX_CACHE_DB=/run/agentx-subagent/cache.lmdb
+Environment=AGENTX_IPC_SOCKET=/run/agentx-subagent/ipc.sock
+ExecStart=/usr/local/bin/agentx-subagent -f -L o
+Restart=on-failure
+RestartSec=2
+StateDirectory=agentx-subagent
+StateDirectoryMode=0750
+# The subagent needs no privileges beyond its own state directory.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/agentx-subagent /run/agentx-subagent
+
+[Install]
+WantedBy=multi-user.target
