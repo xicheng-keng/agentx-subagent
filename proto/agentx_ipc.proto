@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+// IPC between the Rust telemetry application (client) and the C AgentX
+// subagent (server), per docs/design.md ch.4.
+//
+// Transport: SOCK_STREAM AF_UNIX socket.
+// Framing:   4-byte big-endian unsigned length prefix, then that many bytes
+//            of a serialised Envelope.  Max frame length is 64 KiB; a longer
+//            prefix is a protocol error and the server closes the connection.
+//
+// C side  : nanopb  (options in proto/agentx_ipc.options)
+// Rust side: prost
+//
+// The subagent is the single writer of config.lmdb, so the application asks
+// it to perform config writes instead of opening that environment read-write.
+
+package agentx.ipc.v1;
+
+enum ValueType {
+  VALUE_TYPE_UNSPECIFIED = 0;
+  VALUE_TYPE_INT32       = 1;
+  VALUE_TYPE_UINT32      = 2;
+  VALUE_TYPE_UINT64      = 3;
+  VALUE_TYPE_BYTES       = 4;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED   = 0;
+  STATUS_OK            = 1;
+  STATUS_NOT_FOUND     = 2;
+  STATUS_TYPE_MISMATCH = 3;
+  STATUS_INVALID       = 4;   // unknown key, malformed request, bad value
+  STATUS_READ_ONLY     = 5;   // key is not writable through this path
+  STATUS_STORAGE_ERROR = 6;   // LMDB / OS level failure
+}
+
+message Value {
+  ValueType type      = 1;
+  int32     int32_val = 2;
+  uint32    uint32_val = 3;
+  uint64    uint64_val = 4;
+  bytes     bytes_val  = 5;
+}
+
+// Ask the subagent to write a configuration object it owns.
+message WriteConfigRequest {
+  string key   = 1;   // MIB object name, e.g. "sampleIntervalSec"
+  Value  value = 2;
+}
+
+message WriteConfigResponse {
+  Status status  = 1;
+  string message = 2;  // human readable detail, empty on success
+}
+
+// Read back a configuration object (convenience; the app may also open
+// config.lmdb read-only).
+message ReadConfigRequest {
+  string key = 1;
+}
+
+message ReadConfigResponse {
+  Status status  = 1;
+  Value  value   = 2;
+  string message = 3;
+}
+
+// Ask the subagent to emit demoTempAlarm on the application's behalf.
+message SendTrapRequest {
+  string trap_name = 1;   // e.g. "demoTempAlarm"
+}
+
+message SendTrapResponse {
+  Status status  = 1;
+  string message = 2;
+}
+
+message PingRequest  { uint32 nonce = 1; }
+message PingResponse { uint32 nonce = 1; }
+
+message Envelope {
+  uint32 request_id = 1;   // echoed back by the server; 0 means "don't care"
+  oneof body {
+    WriteConfigRequest  write_config_request  = 10;
+    WriteConfigResponse write_config_response = 11;
+    ReadConfigRequest   read_config_request   = 12;
+    ReadConfigResponse  read_config_response  = 13;
+    SendTrapRequest     send_trap_request     = 14;
+    SendTrapResponse    send_trap_response    = 15;
+    PingRequest         ping_request          = 16;
+    PingResponse        ping_response         = 17;
+  }
+}

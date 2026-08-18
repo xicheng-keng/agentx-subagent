@@ -1,0 +1,118 @@
+AGENTX-DEMO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    Integer32, Unsigned32, Counter32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+agentxDemoMIB MODULE-IDENTITY
+    LAST-UPDATED "202608180000Z"
+    ORGANIZATION "agentx-subagent reference implementation"
+    CONTACT-INFO "https://github.com/xicheng-keng/agentx-subagent"
+    DESCRIPTION
+        "Demonstration MIB used to validate the AgentX subagent and its
+         LMDB backed persistent (config.lmdb) / volatile (cache.lmdb)
+         storage layer.  Every read-write scalar is generated with both a
+         persistent and a volatile implementation selected at compile time
+         by storage_mode.h; every read-only scalar is generated against
+         cache.lmdb only."
+    REVISION "202608180000Z"
+    DESCRIPTION "Initial revision."
+    ::= { enterprises 99999 }
+
+demoNotifications OBJECT IDENTIFIER ::= { agentxDemoMIB 0 }
+demoConfig        OBJECT IDENTIFIER ::= { agentxDemoMIB 1 }
+demoStatus        OBJECT IDENTIFIER ::= { agentxDemoMIB 2 }
+
+-- ------------------------------------------------------------------
+-- Configuration objects (read-write).
+-- Storage backend per object is chosen in include/storage_mode.h.
+-- ------------------------------------------------------------------
+
+deviceName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "Administratively assigned name of the device."
+    DEFVAL      { "agentx-demo" }
+    ::= { demoConfig 1 }
+
+tempThresholdMilliC OBJECT-TYPE
+    SYNTAX      Integer32 (-40000..125000)
+    UNITS       "milli-degrees Celsius"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Temperature above which demoTempAlarm is emitted.  Declared
+         volatile in storage_mode.h, i.e. it is written by the subagent
+         into cache.lmdb and returns to this DEFVAL after a reboot."
+    DEFVAL      { 70000 }
+    ::= { demoConfig 2 }
+
+adminStatusExt OBJECT-TYPE
+    SYNTAX      INTEGER { up(1), down(2), testing(3) }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "Extended administrative state, persisted across reboots."
+    DEFVAL      { up }
+    ::= { demoConfig 3 }
+
+sampleIntervalSec OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..86400)
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "Interval at which the telemetry application samples sensors."
+    DEFVAL      { 60 }
+    ::= { demoConfig 4 }
+
+-- ------------------------------------------------------------------
+-- Telemetry objects (read-only, always cache.lmdb, written by the Rust app).
+-- ------------------------------------------------------------------
+
+cpuTempMilliC OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milli-degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Most recent CPU temperature sample."
+    DEFVAL      { 0 }
+    ::= { demoStatus 1 }
+
+sampleCount OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of telemetry samples taken since boot."
+    ::= { demoStatus 2 }
+
+lastUpdateEpoch OBJECT-TYPE
+    SYNTAX      Unsigned32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "UNIX timestamp of the most recent telemetry update."
+    DEFVAL      { 0 }
+    ::= { demoStatus 3 }
+
+statusText OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..127))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Human readable health summary produced by the Rust app."
+    DEFVAL      { "initialising" }
+    ::= { demoStatus 4 }
+
+-- ------------------------------------------------------------------
+-- Notifications
+-- ------------------------------------------------------------------
+
+demoTempAlarm NOTIFICATION-TYPE
+    OBJECTS     { cpuTempMilliC, tempThresholdMilliC }
+    STATUS      current
+    DESCRIPTION "Emitted when cpuTempMilliC rises above tempThresholdMilliC."
+    ::= { demoNotifications 1 }
+
+END
