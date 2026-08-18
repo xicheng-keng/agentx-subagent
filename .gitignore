@@ -25,3 +25,8 @@ build-*/
 *.lmdb/
 *.o
 compile_commands.json
+
+# Build output of scripts/build-matched-lmdb.sh: a compiled static library and
+# a vendored header. Architecture specific, so a committed copy would be wrong
+# on the ARM target while looking authoritative.
+/.lmdb-matched/

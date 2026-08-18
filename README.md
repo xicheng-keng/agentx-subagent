@@ -1,5 +1,7 @@
 # agentx-subagent
 
+[![CI](https://github.com/xicheng-keng/agentx-subagent/actions/workflows/ci.yml/badge.svg)](https://github.com/xicheng-keng/agentx-subagent/actions/workflows/ci.yml)
+
 An AgentX (RFC 2741) subagent written in C against the net-snmp native API,
 backed by two LMDB environments — one persistent, one volatile — and paired
 with a Rust telemetry application that shares those environments.
@@ -110,6 +112,37 @@ recovery, byte-level agreement between the two independent codecs, IPC
 multiplexing and malformed input, and GET load. The simulated power-loss
 scenario needs device-mapper and skips with a message where that is
 unavailable — it reports a skip, never a pass.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull
+request:
+
+- **C tests** — builds against the matched LMDB (see [Build](#build) above,
+  not the distro `liblmdb-dev`), runs `ctest`, and runs both test binaries
+  under `valgrind --leak-check=full`. The build uses `-Werror` so a new
+  compiler warning fails CI.
+- **Rust** — `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`.
+- **Generated code drift** — reruns `scripts/gen_mib2c.sh` and
+  `scripts/gen_proto.sh` and fails if the committed `src/generated`/
+  `src/generated_pb` no longer match their output, so template/schema edits
+  can't silently leave stale generated code behind.
+- **Integration** — builds both sides and runs
+  `scripts/run-integration.sh`, the only check that exercises the C
+  subagent and the Rust app against each other. Scenario g (`dm-flakey`)
+  SKIPs on hosted runners for lack of a device-mapper kernel driver; that is
+  expected and does not fail the job.
+- **Docker** — builds all three `docker/Dockerfile` stages
+  (`build`/`test`/`runtime`); never pushes an image.
+- **shellcheck** — over `scripts/*.sh`, `tests/*.sh` and
+  `docker/entrypoint.sh`.
+
+The C and Rust jobs both build the C side via `scripts/build-matched-lmdb.sh`
+rather than the distro LMDB package: the two must link the exact same LMDB
+build or they fail with `MDB_VERSION_MISMATCH` the moment they share an
+environment, a bug that only shows up cross-process (see `docs/design.md`
+appendix A.1). Building against `liblmdb-dev` here would let CI stay green
+on a configuration that breaks in the one scenario this project cares about.
 
 ## Regenerating
 

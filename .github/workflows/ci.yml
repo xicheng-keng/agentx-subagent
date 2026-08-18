@@ -1,0 +1,248 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # C unit tests, built against the LMDB build the Rust side actually
+  # links (see build-matched-lmdb.sh and docs/design.md appendix A.1) --
+  # building against the distro liblmdb-dev here would make this job
+  # green while validating a configuration nobody should ship.
+  # ---------------------------------------------------------------------
+  c-tests:
+    name: C tests (matched LMDB, valgrind, -Werror)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain and LMDB/net-snmp headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake liblmdb-dev libsnmp-dev valgrind
+
+      # Needed only so Cargo fetches/vendors lmdb-master-sys for
+      # build-matched-lmdb.sh to build from -- this job does not otherwise
+      # build or test the Rust side (that's the `rust` job).
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Build a liblmdb from the exact vendored source the Rust app
+      # (heed -> lmdb-master-sys) compiles for itself, and point CMake at
+      # it instead of liblmdb-dev. Two independent LMDB builds opening the
+      # same environment fail with MDB_VERSION_MISMATCH the moment both
+      # processes hold it open at once (docs/design.md appendix A.1) --
+      # that only shows up cross-process, so a C-only CI job that skipped
+      # this step would never catch it.
+      - name: Build the LMDB build matched to the Rust side
+        run: scripts/build-matched-lmdb.sh
+
+      # -Werror is added purely as a CMake cache variable (-DCMAKE_C_FLAGS)
+      # so this job can assert "zero warnings" without touching
+      # CMakeLists.txt, which is out of this workflow's scope.
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DLMDB_INCLUDE_DIR="${{ github.workspace }}/.lmdb-matched/include" \
+            -DLMDB_LIBRARY="${{ github.workspace }}/.lmdb-matched/lib/libmdb-matched.a" \
+            -DCMAKE_C_FLAGS=-Werror
+
+      - name: Build (fails the job on any compiler warning)
+        run: cmake --build build -j
+
+      - name: ctest
+        run: ctest --test-dir build --output-on-failure
+
+      # A leak here would otherwise only show up under manual testing --
+      # ctest passing says nothing about memory safety.
+      - name: valgrind -- test_storage
+        run: |
+          valgrind --error-exitcode=1 --leak-check=full \
+            ./build/test_storage
+
+      - name: valgrind -- test_ipc_framing
+        run: |
+          valgrind --error-exitcode=1 --leak-check=full \
+            ./build/test_ipc_framing
+
+  # ---------------------------------------------------------------------
+  # Rust side: format, lint, unit/integration tests.
+  # ---------------------------------------------------------------------
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-app/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  # ---------------------------------------------------------------------
+  # src/generated/ and src/generated_pb/ are committed generated code
+  # (mib2c output and nanopb output, respectively). They can silently
+  # drift from mib2c/*.conf, mibs/*.txt and proto/*.proto if someone edits
+  # a template/schema without re-running the generators. Regenerate here
+  # and fail if the committed tree doesn't match byte-for-byte.
+  # ---------------------------------------------------------------------
+  generated-code-drift:
+    name: Generated code drift check (mib2c + nanopb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mib2c, protoc and the nanopb generator's dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsnmp-dev protobuf-compiler python3-pip
+          # nanopb's generator (third_party/nanopb/generator) shells out to
+          # grpc_tools.protoc via the google.protobuf Python bindings.
+          pip install --break-system-packages grpcio-tools protobuf
+
+      - name: Regenerate src/generated (mib2c)
+        run: scripts/gen_mib2c.sh
+
+      - name: Regenerate src/generated_pb (nanopb)
+        run: scripts/gen_proto.sh
+
+      - name: Fail if regeneration differs from the committed tree
+        run: |
+          if ! git diff --exit-code -- src/generated src/generated_pb; then
+            echo "::error::src/generated or src/generated_pb no longer matches" \
+              "the output of scripts/gen_mib2c.sh / scripts/gen_proto.sh." \
+              "Re-run those scripts locally and commit the regenerated files."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------
+  # The cross-process integration suite (docs/design.md 5.3) is the only
+  # thing that exercises the C subagent and the Rust app against each
+  # other for real -- concurrent Set/Get, cache concurrency, restart
+  # recovery, byte-level codec agreement, IPC multiplexing, and load.
+  # ---------------------------------------------------------------------
+  integration:
+    name: Cross-process integration suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain, LMDB/net-snmp headers, and snmpd/snmp tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake liblmdb-dev libsnmp-dev valgrind \
+            snmpd snmp snmptrapd
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the LMDB build matched to the Rust side
+        run: scripts/build-matched-lmdb.sh
+
+      - name: Configure and build the C subagent
+        run: |
+          cmake -S . -B build \
+            -DLMDB_INCLUDE_DIR="${{ github.workspace }}/.lmdb-matched/include" \
+            -DLMDB_LIBRARY="${{ github.workspace }}/.lmdb-matched/lib/libmdb-matched.a"
+          cmake --build build -j
+
+      - name: Build the Rust app and its test helper crate
+        run: |
+          (cd rust-app && cargo build --release)
+          (cd tests/rust_helpers && cargo build --release)
+
+      # scenario_g (dm-flakey) needs a device-mapper kernel driver that
+      # hosted GitHub runners don't provide; it detects that and SKIPs
+      # loudly rather than failing (docs/design.md appendix A.3). That is
+      # expected here and must not fail the job. run-integration.sh's exit
+      # code already encodes "SKIP is not a failure, FAIL is" -- see its
+      # own header comment -- so this step needs no extra handling to keep
+      # a genuine failure failing the job.
+      - name: Run the integration suite
+        env:
+          ITEST_BUILD_DIR: ${{ github.workspace }}/build
+        run: scripts/run-integration.sh
+
+      - name: Upload scratch/log output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: |
+            /tmp/agentx-it-*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # Build all three Dockerfile stages. Never pushed -- this only proves
+  # the image still builds.
+  # ---------------------------------------------------------------------
+  docker:
+    name: Docker build (build / test / runtime stages)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stage: [build, test, runtime]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.stage }} stage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: ${{ matrix.stage }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.stage }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.stage }}
+
+  # ---------------------------------------------------------------------
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # -x -P tests: the scenario_*.sh scripts `source
+      # "$(dirname "${BASH_SOURCE[0]}")/common.sh"` -- a dynamically
+      # computed path shellcheck can't resolve on its own -- so point it at
+      # tests/ to actually follow and lint common.sh too, rather than
+      # silently skipping it (bare `shellcheck` here exits nonzero on the
+      # resulting SC1091 "not following" notes even at default severity).
+      - name: shellcheck
+        run: shellcheck -x -P tests scripts/*.sh tests/*.sh docker/entrypoint.sh
