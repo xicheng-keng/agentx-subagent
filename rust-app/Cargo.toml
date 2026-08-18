@@ -14,7 +14,7 @@ name = "loadgen"
 path = "src/bin/loadgen.rs"
 
 [dependencies]
-heed = "0.20"
+heed = "0.22"
 prost = "0.13"
 thiserror = "2.0"
 clap = { version = "4", features = ["derive"] }
