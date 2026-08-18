@@ -1,13 +1,21 @@
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 #
-# This repo has two dependency manifests worth tracking: the Rust app's
-# Cargo.toml (rust-app/) and this workflow's own GitHub Actions versions.
+# This repo has three dependency manifests worth tracking: the Rust app
+# (rust-app/), the integration test helper crate (tests/rust_helpers/, which
+# carries its own Cargo.lock), and the workflows' own GitHub Actions versions.
 # There is no npm/pip/go manifest here, so no other ecosystem is listed.
 
 version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/rust-app"
+    schedule:
+      interval: "weekly"
+
+  # The integration harness is a separate crate with its own Cargo.lock, so
+  # it resolves dependencies independently of rust-app and needs its own entry.
+  - package-ecosystem: "cargo"
+    directory: "/tests/rust_helpers"
     schedule:
       interval: "weekly"
 

@@ -30,3 +30,7 @@ compile_commands.json
 # a vendored header. Architecture specific, so a committed copy would be wrong
 # on the ARM target while looking authoritative.
 /.lmdb-matched/
+
+# Byte-compiled output from running the nanopb generator (scripts/gen_proto.sh).
+__pycache__/
+*.pyc

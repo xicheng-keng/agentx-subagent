@@ -67,7 +67,14 @@ for s in "${SCENARIOS[@]}"; do
     RESULT["${name}"]="FAIL"
     overall_rc=1
   fi
-  rm -f "${log_file}"
+  # A failed scenario's log is the only durable record of what went wrong once
+  # the run ends, so keep it (CI uploads these as an artifact). Passing and
+  # skipping scenarios leave nothing behind.
+  if [[ "${RESULT[${name}]}" == "FAIL" ]]; then
+    echo "[run-integration] keeping log for failed scenario: ${log_file}"
+  else
+    rm -f "${log_file}"
+  fi
 done
 
 echo

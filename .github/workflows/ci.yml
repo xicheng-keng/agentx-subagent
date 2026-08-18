@@ -148,8 +148,14 @@ jobs:
       - name: Regenerate src/generated_pb (nanopb)
         run: scripts/gen_proto.sh
 
+      # `git diff` only sees tracked files, so a template that starts emitting
+      # a NEW generated file would leave it untracked and the check would pass
+      # while the promised byte-for-byte gate quietly had a hole in it.
+      # --intent-to-add registers any new file with the index (without staging
+      # content) so it shows up in the diff like everything else.
       - name: Fail if regeneration differs from the committed tree
         run: |
+          git add --intent-to-add -- src/generated src/generated_pb
           if ! git diff --exit-code -- src/generated src/generated_pb; then
             echo "::error::src/generated or src/generated_pb no longer matches" \
               "the output of scripts/gen_mib2c.sh / scripts/gen_proto.sh." \
@@ -200,10 +206,18 @@ jobs:
       # code already encodes "SKIP is not a failure, FAIL is" -- see its
       # own header comment -- so this step needs no extra handling to keep
       # a genuine failure failing the job.
+      # Capture the combined runner output as well as keeping per-scenario
+      # artefacts: a scenario that fails before it writes anything useful into
+      # its scratch directory would otherwise upload an empty artifact.
+      # ITEST_KEEP_SCRATCH retains every scenario's scratch dir, not just the
+      # failing one, so surrounding state is available when diagnosing.
       - name: Run the integration suite
         env:
           ITEST_BUILD_DIR: ${{ github.workspace }}/build
-        run: scripts/run-integration.sh
+          ITEST_KEEP_SCRATCH: "1"
+        run: |
+          set -o pipefail
+          scripts/run-integration.sh 2>&1 | tee "${RUNNER_TEMP}/integration.log"
 
       - name: Upload scratch/log output on failure
         if: failure()
@@ -211,6 +225,7 @@ jobs:
         with:
           name: integration-logs
           path: |
+            ${{ runner.temp }}/integration.log
             /tmp/agentx-it-*
           if-no-files-found: ignore
           retention-days: 7

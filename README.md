@@ -137,8 +137,8 @@ request:
 - **shellcheck** — over `scripts/*.sh`, `tests/*.sh` and
   `docker/entrypoint.sh`.
 
-The C and Rust jobs both build the C side via `scripts/build-matched-lmdb.sh`
-rather than the distro LMDB package: the two must link the exact same LMDB
+The two jobs that compile C — **C tests** and **integration** — build it via
+`scripts/build-matched-lmdb.sh` rather than against the distro LMDB package: the two must link the exact same LMDB
 build or they fail with `MDB_VERSION_MISMATCH` the moment they share an
 environment, a bug that only shows up cross-process (see `docs/design.md`
 appendix A.1). Building against `liblmdb-dev` here would let CI stay green
