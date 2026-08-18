@@ -121,27 +121,42 @@ impl Value {
         let payload = &buf[HEADER_LEN..];
         match ty {
             StorageType::Int32 => {
-                let arr: [u8; 4] = payload.try_into().map_err(|_| {
-                    CodecError::InvalidPayloadLength { tag: ty, len: payload.len() }
-                })?;
+                let arr: [u8; 4] =
+                    payload
+                        .try_into()
+                        .map_err(|_| CodecError::InvalidPayloadLength {
+                            tag: ty,
+                            len: payload.len(),
+                        })?;
                 Ok(Value::Int32(i32::from_le_bytes(arr)))
             }
             StorageType::Uint32 => {
-                let arr: [u8; 4] = payload.try_into().map_err(|_| {
-                    CodecError::InvalidPayloadLength { tag: ty, len: payload.len() }
-                })?;
+                let arr: [u8; 4] =
+                    payload
+                        .try_into()
+                        .map_err(|_| CodecError::InvalidPayloadLength {
+                            tag: ty,
+                            len: payload.len(),
+                        })?;
                 Ok(Value::Uint32(u32::from_le_bytes(arr)))
             }
             StorageType::Uint64 => {
-                let arr: [u8; 8] = payload.try_into().map_err(|_| {
-                    CodecError::InvalidPayloadLength { tag: ty, len: payload.len() }
-                })?;
+                let arr: [u8; 8] =
+                    payload
+                        .try_into()
+                        .map_err(|_| CodecError::InvalidPayloadLength {
+                            tag: ty,
+                            len: payload.len(),
+                        })?;
                 Ok(Value::Uint64(u64::from_le_bytes(arr)))
             }
             StorageType::Bytes => Ok(Value::Bytes(payload.to_vec())),
             StorageType::Oid => {
-                if payload.len() % 4 != 0 {
-                    return Err(CodecError::InvalidPayloadLength { tag: ty, len: payload.len() });
+                if !payload.len().is_multiple_of(4) {
+                    return Err(CodecError::InvalidPayloadLength {
+                        tag: ty,
+                        len: payload.len(),
+                    });
                 }
                 let subids = payload
                     .chunks_exact(4)
@@ -159,12 +174,18 @@ mod tests {
 
     #[test]
     fn int32_negative_one_matches_c_layout() {
-        assert_eq!(Value::Int32(-1).encode(), vec![0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff]);
+        assert_eq!(
+            Value::Int32(-1).encode(),
+            vec![0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff]
+        );
     }
 
     #[test]
     fn short_buffer_rejected() {
-        assert_eq!(Value::decode(&[1, 0, 0]), Err(CodecError::BufferTooShort { len: 3 }));
+        assert_eq!(
+            Value::decode(&[1, 0, 0]),
+            Err(CodecError::BufferTooShort { len: 3 })
+        );
     }
 
     #[test]
@@ -179,7 +200,10 @@ mod tests {
     fn mismatched_length_rejected() {
         assert_eq!(
             Value::decode(&[1, 0, 0, 0, 1, 2, 3]),
-            Err(CodecError::InvalidPayloadLength { tag: StorageType::Int32, len: 3 })
+            Err(CodecError::InvalidPayloadLength {
+                tag: StorageType::Int32,
+                len: 3
+            })
         );
     }
 }
