@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <dirent.h>
-#include <sys/stat.h>
 
 static int g_failures = 0;
 
@@ -40,30 +39,34 @@ static int g_failures = 0;
 
 static char g_tmpdir[4096];
 
+/*
+ * Removes the test's own scratch tree (the mkdtemp directory below and the
+ * LMDB environments inside it).
+ *
+ * Directory-ness is decided by whether opendir() succeeds rather than by a
+ * preceding lstat(), and removal is one remove() call (rmdir for a directory,
+ * unlink otherwise): there is deliberately no "check the path, then act on the
+ * path" pair here, which is what a time-of-check/time-of-use race needs.
+ */
 static void rm_rf(const char *path)
 {
-    struct stat st;
-    if (lstat(path, &st) != 0) {
-        return;
-    }
-    if (S_ISDIR(st.st_mode)) {
-        DIR *d = opendir(path);
-        if (d != NULL) {
-            struct dirent *ent;
-            while ((ent = readdir(d)) != NULL) {
-                if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
-                    continue;
-                }
-                char child[8192];
-                snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
-                rm_rf(child);
+    DIR *d = opendir(path);
+
+    if (d != NULL) {
+        struct dirent *ent;
+
+        while ((ent = readdir(d)) != NULL) {
+            char child[8192];
+
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+                continue;
             }
-            closedir(d);
+            snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+            rm_rf(child);
         }
-        rmdir(path);
-    } else {
-        unlink(path);
+        closedir(d);
     }
+    remove(path);
 }
 
 static void make_tmpdir(void)
