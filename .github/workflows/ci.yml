@@ -30,7 +30,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake liblmdb-dev libsnmp-dev valgrind
+            build-essential cmake liblmdb-dev libsnmp-dev valgrind \
+            protobuf-compiler
 
       # Needed only so Cargo fetches/vendors lmdb-master-sys for
       # build-matched-lmdb.sh to build from -- this job does not otherwise
@@ -86,6 +87,14 @@ jobs:
         working-directory: rust-app
     steps:
       - uses: actions/checkout@v4
+
+      # rust-app/build.rs runs prost-build over ../proto/agentx_ipc.proto,
+      # which shells out to protoc. Hosted runners do not ship it, so every
+      # cargo invocation here fails at the build script without this.
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -165,7 +174,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake liblmdb-dev libsnmp-dev valgrind \
-            snmpd snmp snmptrapd
+            protobuf-compiler snmpd snmp snmptrapd
 
       - uses: dtolnay/rust-toolchain@stable
 
