@@ -21,7 +21,7 @@ CMakeUserPresets.json
 # --- agentx-subagent ---
 build/
 build-*/
-rust-app/target/
+**/target/
 *.lmdb/
 *.o
 compile_commands.json
