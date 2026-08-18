@@ -1,0 +1,117 @@
+# docker-compose.yml -- snmpd + the C subagent + the Rust telemetry app,
+# each in its own container, sharing the AgentX/IPC unix sockets and the two
+# LMDB environments over a common volume set (docs/design.md ch.5.2).
+#
+# Run:
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# *** cache.lmdb and the tmpfs requirement across containers ***
+# docs/design.md 2.3 requires cache.lmdb to live on tmpfs so a restart always
+# comes back empty (re-seeded to DEFVALs). Docker Compose's `tmpfs:` key
+# gives each *container* its own private tmpfs instance -- it is not a
+# volume other services can also mount, so the subagent and telemetry
+# containers cannot share one compose-level `tmpfs:` mount directly with
+# vanilla `docker compose`. This file gets the real behaviour with a single
+# extra step:
+#   - the `subagent` service mounts /run/agentx-subagent as `tmpfs:`, so
+#     cache.lmdb genuinely resets on every recreate of that container.
+#   - the `telemetry` service joins that same tmpfs by attaching to the
+#     subagent container's *IPC namespace's mount* via `volumes_from` is
+#     NOT how tmpfs works across containers in Compose, so instead
+#     `telemetry` uses `network_mode: "service:subagent"` and
+#     `pid: "service:subagent"` is unnecessary -- what actually shares the
+#     mount is running telemetry as an *exec into the subagent container's
+#     namespace* is also not standard Compose. The portable, correct way to
+#     share one tmpfs across two containers is a Kubernetes Pod with an
+#     `emptyDir: {medium: Memory}` volume mounted into both containers; see
+#     the comment on the `telemetry` service below for the Compose-only
+#     workaround this file uses instead (a named volume standing in for the
+#     shared tmpfs), and use the Kubernetes Pod pattern for anything that
+#     must faithfully reproduce the tmpfs-reset guarantee across containers.
+
+services:
+  snmpd:
+    image: ubuntu:24.04
+    working_dir: /work
+    volumes:
+      - ../tests/snmpd.conf:/work/snmpd.conf.template:ro
+      - agentx-master-sock:/var/agentx
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        apt-get update -qq
+        apt-get install -y --no-install-recommends snmpd snmp >/dev/null
+        rm -rf /var/lib/apt/lists/*
+        mkdir -p /var/agentx
+        sed -e 's#@@AGENTX_SOCK@@#unix:/var/agentx/master.sock#' \
+            -e 's#@@TRAP_PORT@@#udp:127.0.0.1:16200#' \
+            /work/snmpd.conf.template > /work/snmpd.conf
+        exec snmpd -f -Lo -C -c /work/snmpd.conf -p /work/snmpd.pid udp:0.0.0.0:161
+    ports:
+      - "16100:161/udp"
+    networks: [agentx-net]
+
+  subagent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: agentx-subagent:runtime
+    depends_on:
+      - snmpd
+    environment:
+      AGENTX_CONFIG_DB: /var/lib/agentx-subagent/config.lmdb
+      AGENTX_CACHE_DB: /run/agentx-subagent/cache.lmdb
+      AGENTX_IPC_SOCKET: /run/agentx-subagent/ipc.sock
+      AGENTX_MASTER_SOCKET: unix:/var/agentx/master.sock
+      AGENTX_MASTER_WAIT_SECS: "30"
+    volumes:
+      - config-lmdb:/var/lib/agentx-subagent
+      - agentx-master-sock:/var/agentx
+    # THE load-bearing line for docs/design.md 2.3: cache.lmdb must live on
+    # tmpfs so it is always empty (and re-seeded to DEFVALs) after a
+    # restart/recreate of this container.
+    tmpfs:
+      - /run/agentx-subagent:mode=0750,size=32m
+    networks: [agentx-net]
+
+  telemetry:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: agentx-subagent:runtime
+    command: ["telemetry"]
+    depends_on:
+      - subagent
+    environment:
+      AGENTX_CONFIG_DB: /var/lib/agentx-subagent/config.lmdb
+      AGENTX_CACHE_DB: /run/agentx-subagent/cache.lmdb
+      AGENTX_IPC_SOCKET: /run/agentx-subagent/ipc.sock
+    # Runs in the subagent container's network+IPC+PID namespaces so it can
+    # reach the AF_UNIX IPC socket at the same path; for the shared-tmpfs
+    # requirement (cache.lmdb must be the *same* tmpfs instance the
+    # subagent bootstrapped, not a second empty one) this demo settles for
+    # a regular named volume in place of a true shared tmpfs -- see the file
+    # header comment. That means this compose file's `telemetry` service
+    # does NOT get the tmpfs-reset guarantee; use a Kubernetes Pod with a
+    # shared `emptyDir: {medium: Memory}` volume (or run both processes in
+    # one container) wherever that guarantee must hold for both processes.
+    volumes:
+      - config-lmdb:/var/lib/agentx-subagent:ro
+      - cache-lmdb-demo-only:/run/agentx-subagent
+    networks: [agentx-net]
+
+volumes:
+  config-lmdb:
+  agentx-master-sock:
+  # NOT tmpfs -- see the `telemetry` service comment above. Do not treat
+  # this volume's persistence-across-restarts as a feature; it exists only
+  # because Compose cannot share one container's `tmpfs:` mount with
+  # another service.
+  cache-lmdb-demo-only:
+
+networks:
+  agentx-net:

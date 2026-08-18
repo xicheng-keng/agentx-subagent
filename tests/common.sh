@@ -76,7 +76,18 @@ itest_init() {
 itest_cleanup() {
   local rc=$?
   local pid
-  for pid in "${ITEST_PIDS[@]:-}"; do
+  # Union of the in-shell array (fast path, covers the common case of a
+  # direct, non-subshell call) and the on-disk record (authoritative --
+  # covers every itest_start_subagent/itest_start_snmpd call made through a
+  # `$(...)` command substitution, which runs in a subshell whose ITEST_PIDS
+  # appends never reach this, the parent shell's, array).
+  local all_pids=("${ITEST_PIDS[@]:-}")
+  if [[ -n "${ITEST_SCRATCH:-}" && -f "${ITEST_SCRATCH}/.tracked_pids" ]]; then
+    while IFS= read -r pid; do
+      [[ -n "${pid}" ]] && all_pids+=("${pid}")
+    done < "${ITEST_SCRATCH}/.tracked_pids"
+  fi
+  for pid in "${all_pids[@]:-}"; do
     [[ -n "${pid}" ]] || continue
     if kill -0 "${pid}" 2>/dev/null; then
       kill "${pid}" 2>/dev/null || true
@@ -105,7 +116,18 @@ itest_report() {
   itest_log "=== summary: ${ITEST_PASS_COUNT} passed, ${ITEST_FAIL_COUNT} failed ==="
 }
 
-itest_track_pid() { ITEST_PIDS+=("$1"); }
+itest_track_pid() {
+  ITEST_PIDS+=("$1")
+  # Also persist to a file: itest_start_subagent/itest_start_snmpd are often
+  # invoked as `x="$(itest_start_foo ...)"`, which runs the function (and
+  # this call) in a *subshell* -- appends to the ITEST_PIDS array there are
+  # invisible to the parent shell's copy. The file survives that boundary,
+  # so itest_cleanup (which always runs in the top-level scenario shell,
+  # never in a subshell) can still find and kill every tracked process.
+  if [[ -n "${ITEST_SCRATCH:-}" ]]; then
+    echo "$1" >> "${ITEST_SCRATCH}/.tracked_pids" 2>/dev/null || true
+  fi
+}
 
 # --- port allocation (design says 16100-16300) ----------------------------
 

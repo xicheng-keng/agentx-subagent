@@ -77,9 +77,21 @@ instance appended for table cells (`"ifAdminStatusExt.3"`).
 
 ## Build
 
+> **Both sides must link the same LMDB build.** `heed` always compiles its own
+> vendored LMDB and cannot be pointed at the system library, so a C subagent
+> linked against the distro's `liblmdb-dev` and a Rust app linked against the
+> vendored copy will fail with `MDB_VERSION_MISMATCH` the moment they hold the
+> same environment open at once. This does not show up in single-process
+> testing. See `docs/design.md` appendix A.1.
+
 ```sh
 sudo apt-get install -y liblmdb-dev libsnmp-dev snmpd snmp protobuf-compiler cmake
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+# Builds liblmdb from the same source Cargo vendors, and configures the C side
+# against it. Use this rather than the distro package for any build whose
+# binaries will share an environment with the Rust application.
+scripts/build-matched-lmdb.sh
+
 cmake --build build -j
 (cd rust-app && cargo build --release)
 ```
@@ -89,7 +101,15 @@ cmake --build build -j
 ```sh
 ctest --test-dir build --output-on-failure   # C unit tests
 (cd rust-app && cargo test)                  # Rust unit tests
+scripts/run-integration.sh                   # cross-process scenarios
 ```
+
+The integration suite covers the scenarios in `docs/design.md` 5.3: concurrent
+writes under the single-writer rule, cache concurrency, subagent restart and
+recovery, byte-level agreement between the two independent codecs, IPC
+multiplexing and malformed input, and GET load. The simulated power-loss
+scenario needs device-mapper and skips with a message where that is
+unavailable — it reports a skip, never a pass.
 
 ## Regenerating
 
