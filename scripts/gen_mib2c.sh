@@ -40,7 +40,7 @@ echo "== generating demo_status.{c,h} (demoStatus, read-only scalars) =="
     mib2c -I "$MIB2C_TEMPLATE_DIR" -c mib2c.dbscalar.conf -f demo_status -i demoStatus
 )
 
-echo "== generating cache_bootstrap.c (cache.lmdb DEFVAL bootstrap, whole MIB) =="
+echo "== generating storage_bootstrap.c (cache.lmdb + config.lmdb DEFVAL bootstrap, whole MIB) =="
 (
     cd "$OUT_DIR"
     # Run over the whole module so both demoConfig and demoStatus scalars
@@ -48,4 +48,4 @@ echo "== generating cache_bootstrap.c (cache.lmdb DEFVAL bootstrap, whole MIB) =
     mib2c -I "$MIB2C_TEMPLATE_DIR" -c mib2c.bootstrap.conf -i agentxDemoMIB
 )
 
-echo "== done: $OUT_DIR/demo_config.{c,h} $OUT_DIR/demo_status.{c,h} $OUT_DIR/cache_bootstrap.c =="
+echo "== done: $OUT_DIR/demo_config.{c,h} $OUT_DIR/demo_status.{c,h} $OUT_DIR/storage_bootstrap.c =="

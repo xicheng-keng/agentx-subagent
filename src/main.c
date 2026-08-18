@@ -26,7 +26,7 @@
 
 #include "subagent_env.h"
 #include "storage_lmdb.h"
-#include "cache_bootstrap.h"
+#include "storage_bootstrap.h"
 #include "demo_config.h"
 #include "demo_status.h"
 #include "ipc_server.h"
@@ -70,6 +70,18 @@ subagent_storage_init(const char *config_path, const char *cache_path)
         config_env = NULL;
         return -1;
     }
+
+    rc = config_bootstrap_defaults(config_env);
+    if (rc != STORAGE_OK) {
+        snmp_log(LOG_ERR, "subagent_storage_init: config_bootstrap_defaults failed: %s\n",
+                  storage_strerror(rc));
+        storage_env_close(config_env);
+        config_env = NULL;
+        return -1;
+    }
+    snmp_log(LOG_INFO,
+              "subagent_storage_init: config.lmdb bootstrap complete (config='%s')\n",
+              config_path);
 
     rc = storage_env_open(cache_path, 0, STORAGE_ENV_NOSYNC, &cache_env);
     if (rc != STORAGE_OK) {
