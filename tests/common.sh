@@ -94,8 +94,16 @@ itest_cleanup() {
       wait "${pid}" 2>/dev/null || true
     fi
   done
+  # Keep the scratch directory when there is something to look at: a failed
+  # scenario's logs are the whole point of having them, and deleting them on
+  # the way out leaves a CI failure with no evidence attached. A pass (or a
+  # skip) still cleans up, so repeated local runs do not accumulate.
   if [[ -n "${ITEST_SCRATCH}" && -d "${ITEST_SCRATCH}" ]]; then
-    rm -rf "${ITEST_SCRATCH}"
+    if [[ ${rc} -ne 0 && ${ITEST_SKIPPED} -ne 1 ]] || [[ "${ITEST_KEEP_SCRATCH:-0}" == "1" ]]; then
+      itest_log "keeping scratch dir for inspection: ${ITEST_SCRATCH}"
+    else
+      rm -rf "${ITEST_SCRATCH}"
+    fi
   fi
   if [[ ${ITEST_SKIPPED} -eq 1 ]]; then
     exit 0
@@ -158,33 +166,52 @@ PYEOF
 
 # --- binary / capability gates ---------------------------------------------
 
-# Verifies the subagent binary exists and actually runs (-h exits 0), and
-# skips the whole scenario loudly rather than hanging if not. Concurrent
-# development on src/main.c means this can be missing/broken at any time.
+# Missing build output is a FAILURE, not a skip.
+#
+# These helpers used to skip when a binary was absent, as scaffolding for the
+# period when src/main.c was still being written. That reason is gone, and the
+# behaviour is actively dangerous now: pointing the suite at a build directory
+# that does not exist made every scenario skip and the whole run exit 0, which
+# reads as "everything passed" in CI. A skip is for a capability the
+# environment cannot provide (see scenario g and dm-flakey); not having built
+# the thing under test is not that.
+#
+# ITEST_ALLOW_MISSING_BUILD=1 restores the old skipping behaviour for anyone
+# who deliberately wants to run a subset against a partial build.
+itest_missing_build() {
+  local what="$1"
+  if [[ "${ITEST_ALLOW_MISSING_BUILD:-0}" == "1" ]]; then
+    itest_skip "${what} (ITEST_ALLOW_MISSING_BUILD=1)"
+  fi
+  itest_fail "${what}"
+  exit 1
+}
+
+# Verifies the subagent binary exists and actually runs (-h exits 0).
 itest_require_subagent() {
   if [[ ! -x "${ITEST_SUBAGENT_BIN}" ]]; then
-    itest_skip "agentx-subagent binary not found at ${ITEST_SUBAGENT_BIN} (build not ready yet)"
+    itest_missing_build "agentx-subagent binary not found at ${ITEST_SUBAGENT_BIN} -- build it first (see README), or set ITEST_BUILD_DIR to the right directory"
   fi
   if ! "${ITEST_SUBAGENT_BIN}" -h >/dev/null 2>&1; then
-    itest_skip "agentx-subagent -h did not exit 0; binary is broken/incomplete"
+    itest_missing_build "agentx-subagent -h did not exit 0; binary is broken/incomplete"
   fi
 }
 
 itest_require_storage_cli() {
   if [[ ! -x "${ITEST_STORAGE_CLI}" ]]; then
-    itest_skip "storage_cli helper not found at ${ITEST_STORAGE_CLI} (build not ready yet)"
+    itest_missing_build "storage_cli helper not found at ${ITEST_STORAGE_CLI}"
   fi
 }
 
 itest_require_rust_bins() {
   if [[ ! -x "${ITEST_TELEMETRY_BIN}" || ! -x "${ITEST_LOADGEN_BIN}" ]]; then
-    itest_skip "rust-app release binaries not found under ${ITEST_RUST_RELEASE_DIR} (run: cd rust-app && cargo build --release)"
+    itest_missing_build "rust-app release binaries not found under ${ITEST_RUST_RELEASE_DIR} (run: cd rust-app && cargo build --release)"
   fi
 }
 
 itest_require_it_helper() {
   if [[ ! -x "${ITEST_IT_HELPER_BIN}" ]]; then
-    itest_skip "it_helper binary not found at ${ITEST_IT_HELPER_BIN} (run: cd tests/rust_helpers && cargo build --release)"
+    itest_missing_build "it_helper binary not found at ${ITEST_IT_HELPER_BIN} (run: cd tests/rust_helpers && cargo build --release)"
   fi
 }
 

@@ -1,11 +1,25 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# This repo has three dependency manifests worth tracking: the Rust app
+# (rust-app/), the integration test helper crate (tests/rust_helpers/, which
+# carries its own Cargo.lock), and the workflows' own GitHub Actions versions.
+# There is no npm/pip/go manifest here, so no other ecosystem is listed.
 
 version: 2
 updates:
-  - package-ecosystem: "" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "cargo"
+    directory: "/rust-app"
+    schedule:
+      interval: "weekly"
+
+  # The integration harness is a separate crate with its own Cargo.lock, so
+  # it resolves dependencies independently of rust-app and needs its own entry.
+  - package-ecosystem: "cargo"
+    directory: "/tests/rust_helpers"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
       interval: "weekly"

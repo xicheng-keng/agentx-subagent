@@ -46,12 +46,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional extra CA certificate, for building behind a corporate/proxy MITM
-# TLS setup (rustup's installer needs one such trust anchor in this repo's
-# own sandboxed dev environment). Harmless and a no-op on a normal network:
-# the wildcard COPY copies zero files if docker/extra-ca.crt isn't present,
-# and update-ca-certificates then has nothing extra to add.
-COPY docker/extra-ca.cr[t] /usr/local/share/ca-certificates/extra-ca.crt
-RUN update-ca-certificates
+# TLS setup (rustup's installer needs such a trust anchor in this repo's own
+# sandboxed dev environment; a normal network needs nothing here).
+#
+# This deliberately copies the whole docker/ directory and tests for the file
+# inside a RUN, rather than the tempting `COPY docker/extra-ca.cr[t]` glob
+# trick. A wildcard COPY that matches ZERO files is not a no-op -- it fails
+# the build outright ("no source files were specified"), under both BuildKit
+# and the legacy builder. Since extra-ca.crt is intentionally not committed,
+# that spelling breaks every build that does not have one.
+COPY docker/ /tmp/docker-ctx/
+RUN if [ -f /tmp/docker-ctx/extra-ca.crt ]; then \
+        cp /tmp/docker-ctx/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt; \
+        update-ca-certificates; \
+    fi; \
+    rm -rf /tmp/docker-ctx
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
