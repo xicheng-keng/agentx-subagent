@@ -15,6 +15,8 @@
 #include "storage_bootstrap.h"
 #include "storage_lmdb.h"
 #include "storage_mode.h"
+#include "table_provision.h"
+#include "table_rows.h"
 
 storage_rc_t
 cache_bootstrap_defaults(storage_env_t *cache, int overwrite)
@@ -199,6 +201,103 @@ cache_bootstrap_defaults(storage_env_t *cache, int overwrite)
         }
     }
 
+#ifndef TABLE_ROWS_portConfigTable
+#error "TABLE_ROWS_portConfigTable is not defined in table_provision.h -- declare how many rows 'portConfigTable' ships with (see docs/design.md 3.2)"
+#endif
+#ifndef STORAGE_MODE_portDescr
+#error "STORAGE_MODE_portDescr is not defined in storage_mode.h -- add an entry for the column 'portDescr' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portDescr == STORAGE_MODE_VOLATILE
+    /* portConfigTable.portDescr: read-write, but STORAGE_MODE_portDescr is VOLATILE -> lives in cache.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        static const char defval[] = "port";
+        char probe[1];
+        size_t probe_len = sizeof(probe);
+        storage_rc_t exists_rc = STORAGE_ERR_NOTFOUND;
+
+        rc = table_cell_key("portDescr", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        if (!overwrite) {
+            exists_rc = storage_txn_get_bytes(txn, key, probe, &probe_len);
+        }
+        if (overwrite || exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_bytes(txn, key, defval, strlen(defval));
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portDescr == STORAGE_MODE_VOLATILE */
+
+#ifndef STORAGE_MODE_portAdminStatus
+#error "STORAGE_MODE_portAdminStatus is not defined in storage_mode.h -- add an entry for the column 'portAdminStatus' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portAdminStatus == STORAGE_MODE_VOLATILE
+    /* portConfigTable.portAdminStatus: read-write, but STORAGE_MODE_portAdminStatus is VOLATILE -> lives in cache.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        int32_t defval;
+        int32_t probe;
+        storage_rc_t exists_rc = STORAGE_ERR_NOTFOUND;
+
+        defval = 0; /* overwritten below if the DEFVAL label is matched */
+        defval = 1; /* DEFVAL { up } */
+        rc = table_cell_key("portAdminStatus", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        if (!overwrite) {
+            exists_rc = storage_txn_get_int(txn, key, &probe);
+        }
+        if (overwrite || exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_int(txn, key, defval);
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portAdminStatus == STORAGE_MODE_VOLATILE */
+
+#ifndef STORAGE_MODE_portAlarmThresholdMilliC
+#error "STORAGE_MODE_portAlarmThresholdMilliC is not defined in storage_mode.h -- add an entry for the column 'portAlarmThresholdMilliC' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portAlarmThresholdMilliC == STORAGE_MODE_VOLATILE
+    /* portConfigTable.portAlarmThresholdMilliC: read-write, but STORAGE_MODE_portAlarmThresholdMilliC is VOLATILE -> lives in cache.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        int32_t defval;
+        int32_t probe;
+        storage_rc_t exists_rc = STORAGE_ERR_NOTFOUND;
+
+        defval = 80000;
+        rc = table_cell_key("portAlarmThresholdMilliC", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        if (!overwrite) {
+            exists_rc = storage_txn_get_int(txn, key, &probe);
+        }
+        if (overwrite || exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_int(txn, key, defval);
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portAlarmThresholdMilliC == STORAGE_MODE_VOLATILE */
+
     return storage_txn_commit(txn);
 }
 
@@ -303,6 +402,97 @@ config_bootstrap_defaults(storage_env_t *config)
 
 
 
+
+#ifndef TABLE_ROWS_portConfigTable
+#error "TABLE_ROWS_portConfigTable is not defined in table_provision.h -- declare how many rows 'portConfigTable' ships with (see docs/design.md 3.2)"
+#endif
+#ifndef STORAGE_MODE_portDescr
+#error "STORAGE_MODE_portDescr is not defined in storage_mode.h -- add an entry for the column 'portDescr' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portDescr == STORAGE_MODE_PERSISTENT
+    /* portConfigTable.portDescr: read-write, STORAGE_MODE_portDescr is PERSISTENT -> lives in config.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        static const char defval[] = "port";
+        char probe[1];
+        size_t probe_len = sizeof(probe);
+        storage_rc_t exists_rc;
+
+        rc = table_cell_key("portDescr", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        exists_rc = storage_txn_get_bytes(txn, key, probe, &probe_len);
+        if (exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_bytes(txn, key, defval, strlen(defval));
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portDescr == STORAGE_MODE_PERSISTENT */
+
+#ifndef STORAGE_MODE_portAdminStatus
+#error "STORAGE_MODE_portAdminStatus is not defined in storage_mode.h -- add an entry for the column 'portAdminStatus' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portAdminStatus == STORAGE_MODE_PERSISTENT
+    /* portConfigTable.portAdminStatus: read-write, STORAGE_MODE_portAdminStatus is PERSISTENT -> lives in config.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        int32_t defval;
+        int32_t probe;
+        storage_rc_t exists_rc;
+
+        defval = 0; /* overwritten below if the DEFVAL label is matched */
+        defval = 1; /* DEFVAL { up } */
+        rc = table_cell_key("portAdminStatus", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        exists_rc = storage_txn_get_int(txn, key, &probe);
+        if (exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_int(txn, key, defval);
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portAdminStatus == STORAGE_MODE_PERSISTENT */
+
+#ifndef STORAGE_MODE_portAlarmThresholdMilliC
+#error "STORAGE_MODE_portAlarmThresholdMilliC is not defined in storage_mode.h -- add an entry for the column 'portAlarmThresholdMilliC' (see docs/design.md 3.1/3.2)"
+#endif
+#if STORAGE_MODE_portAlarmThresholdMilliC == STORAGE_MODE_PERSISTENT
+    /* portConfigTable.portAlarmThresholdMilliC: read-write, STORAGE_MODE_portAlarmThresholdMilliC is PERSISTENT -> lives in config.lmdb */
+    for (uint32_t row = 1; row <= (uint32_t)TABLE_ROWS_portConfigTable; row++) {
+        table_instance_t inst = { { row }, 1 };
+        char key[STORAGE_KEY_MAX + 1];
+        int32_t defval;
+        int32_t probe;
+        storage_rc_t exists_rc;
+
+        defval = 80000;
+        rc = table_cell_key("portAlarmThresholdMilliC", &inst, key, sizeof(key));
+        if (rc != STORAGE_OK) {
+            storage_txn_abort(txn);
+            return rc;
+        }
+        exists_rc = storage_txn_get_int(txn, key, &probe);
+        if (exists_rc == STORAGE_ERR_NOTFOUND) {
+            rc = storage_txn_set_int(txn, key, defval);
+            if (rc != STORAGE_OK) {
+                storage_txn_abort(txn);
+                return rc;
+            }
+        }
+    }
+#endif /* STORAGE_MODE_portAlarmThresholdMilliC == STORAGE_MODE_PERSISTENT */
 
     return storage_txn_commit(txn);
 }

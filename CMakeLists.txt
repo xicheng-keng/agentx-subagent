@@ -25,8 +25,11 @@ else()
 endif()
 
 # --- storage abstraction ---------------------------------------------
+# table_rows.c lives here rather than with the generated handlers on purpose:
+# it is net-snmp free (see include/table_rows.h), so the test binaries can
+# exercise table row discovery without linking the agent library.
 if(EXISTS ${CMAKE_SOURCE_DIR}/src/storage_lmdb.c)
-  add_library(agentx_storage STATIC src/storage_lmdb.c)
+  add_library(agentx_storage STATIC src/storage_lmdb.c src/table_rows.c)
   target_include_directories(agentx_storage PUBLIC include ${LMDB_INCLUDE_DIR})
   target_link_libraries(agentx_storage PUBLIC ${LMDB_LIBRARY})
 endif()
@@ -53,6 +56,7 @@ if(NET_SNMP_CONFIG AND EXISTS ${CMAKE_SOURCE_DIR}/src/main.c AND TARGET agentx_s
   add_executable(agentx-subagent
     src/main.c
     src/demo_trap.c
+    src/table_oid.c
     ${AGENTX_GENERATED_SRC})
   target_include_directories(agentx-subagent PRIVATE include src/generated)
   target_compile_options(agentx-subagent PRIVATE ${NETSNMP_CFLAGS})
@@ -65,7 +69,7 @@ endif()
 # --- tests -------------------------------------------------------------
 if(AGENTX_BUILD_TESTS)
   enable_testing()
-  foreach(t test_storage test_ipc_framing)
+  foreach(t test_storage test_table_rows test_ipc_framing)
     if(EXISTS ${CMAKE_SOURCE_DIR}/tests/${t}.c)
       add_executable(${t} tests/${t}.c)
       target_include_directories(${t} PRIVATE include)

@@ -7,6 +7,16 @@
 //!   - `sampleCount`     : Uint64, running sample counter
 //!   - `lastUpdateEpoch` : Uint64, unix seconds of the last write
 //!   - `statusText`      : Bytes, a short human-readable status string
+//!
+//! and one row per sensor of the AGENTX-DEMO-MIB `sensorTable`
+//! (docs/design.md 3.2), each row written as a single transaction:
+//!   - `sensorName.<n>`        : Bytes,  DisplayString
+//!   - `sensorTempMilliC.<n>`  : Int32,  milli-degrees Celsius
+//!   - `sensorSampleCount.<n>` : Uint32, Counter32
+//!
+//! Rows of a telemetry table exist exactly while this writer keeps their
+//! cells present: nothing seeds them, so a subagent starting against a fresh
+//! tmpfs reports an empty table rather than sensors that may not be there.
 
 use agentx_rust_app::storage::{CacheStore, ConfigStore, Value};
 use clap::Parser;
@@ -17,6 +27,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const THERMAL_ZONE_PATH: &str = "/sys/class/thermal/thermal_zone0/temp";
 const DEFAULT_SAMPLE_INTERVAL_SEC: u64 = 60;
+
+/// The columns of AGENTX-DEMO-MIB sensorTable this app owns.
+const SENSOR_COLUMNS: [&str; 3] = ["sensorName", "sensorTempMilliC", "sensorSampleCount"];
+
+/// The sensors reported as rows of sensorTable, indexed by position + 1. A
+/// real deployment would discover these; the demo keeps a fixed set so the
+/// integration suite has something deterministic to walk.
+const SENSORS: [&str; 3] = ["cpu-package", "board-inlet", "nvme0"];
 
 #[derive(Parser, Debug)]
 #[command(about = "AgentX Rust telemetry sampler (docs/design.md)")]
@@ -51,6 +69,12 @@ struct Args {
     /// from config.lmdb (handy for tests).
     #[arg(long)]
     interval_sec: Option<u64>,
+
+    /// Remove the sensorTable rows this app owns and exit, without sampling.
+    /// Rows of a telemetry table live only as long as their cells do, so this
+    /// is what "the sensors went away" looks like to a manager walking it.
+    #[arg(long)]
+    clear_sensor_rows: bool,
 }
 
 /// Reads a CPU temperature in milli-degrees Celsius. Prefers the real sysfs
@@ -92,7 +116,31 @@ fn run_once(
     let status = format!("ok temp={temp_milli_c}mC count={sample_count}");
     cache.put_bytes("statusText", status.as_bytes())?;
 
-    println!("[telemetry] sample={sample_count} tempMilliC={temp_milli_c} epoch={now}");
+    // One transaction per row: a walk in flight then sees each row either
+    // fully updated or not at all, instead of a row with holes.
+    for (idx, name) in SENSORS.iter().enumerate() {
+        let instance = [(idx + 1) as u32];
+        // Each sensor wobbles around the package temperature, so the rows are
+        // visibly distinct without needing three sysfs zones.
+        let sensor_temp = temp_milli_c + (idx as i32) * 1_500;
+
+        cache.put_row(
+            &instance,
+            &[
+                ("sensorName", Value::Bytes(name.as_bytes().to_vec())),
+                ("sensorTempMilliC", Value::Int32(sensor_temp)),
+                // Counter32 in the MIB, so Uint32 here: the generated handler
+                // reads this cell as a u32 and reports anything else as a
+                // type mismatch.
+                ("sensorSampleCount", Value::Uint32(sample_count as u32)),
+            ],
+        )?;
+    }
+
+    println!(
+        "[telemetry] sample={sample_count} tempMilliC={temp_milli_c} epoch={now} sensorRows={}",
+        SENSORS.len()
+    );
     Ok(())
 }
 
@@ -100,6 +148,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let cache = CacheStore::open(&args.cache_dir, Some(args.mapsize))?;
+
+    if args.clear_sensor_rows {
+        for idx in 0..SENSORS.len() {
+            cache.delete_row(&[(idx + 1) as u32], &SENSOR_COLUMNS)?;
+        }
+        println!("[telemetry] cleared {} sensorTable row(s)", SENSORS.len());
+        return Ok(());
+    }
+
     let interval_sec = args
         .interval_sec
         .unwrap_or_else(|| read_sample_interval_sec(&args.config_dir, args.mapsize));

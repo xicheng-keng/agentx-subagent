@@ -4,6 +4,8 @@
  * Wires together:
  *   - the two LMDB environments (config.lmdb / cache.lmdb, subagent_env.h)
  *   - the generated AGENTX-DEMO-MIB scalar handlers (demo_config.h/demo_status.h)
+ *   - the generated AGENTX-DEMO-MIB table handlers
+ *     (demo_config_table.h/demo_status_table.h)
  *   - the AF_UNIX/protobuf IPC server (ipc_server.h)
  *   - a 5 second alarm that checks for a temperature-alarm edge (demo_trap.h)
  *
@@ -28,7 +30,9 @@
 #include "storage_lmdb.h"
 #include "storage_bootstrap.h"
 #include "demo_config.h"
+#include "demo_config_table.h"
 #include "demo_status.h"
+#include "demo_status_table.h"
 #include "ipc_server.h"
 #include "demo_trap.h"
 
@@ -327,7 +331,9 @@ main(int argc, char *argv[])
     }
 
     init_demo_config();
+    init_demo_config_table();
     init_demo_status();
+    init_demo_status_table();
 
     init_snmp("agentx-subagent");
 

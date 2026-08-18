@@ -47,16 +47,46 @@ locking.
 contain both code paths and the preprocessor selects one; read-only objects are
 generated against `cache.lmdb` only.
 
+### Conceptual tables
+
+Tables are handled one level down from scalars, with the same rule: the
+backend is chosen **per column**, so a single row may straddle both
+environments (`portConfigTable` in the demo MIB deliberately does). See
+[`docs/design.md`](docs/design.md) 3.2 for the full rationale; in short:
+
+- **Cells are ordinary keys.** `"<columnName>.<instance>"`, where the instance
+  is the row's index sub-identifiers in dotted decimal, taken verbatim from
+  the OID (`portDescr.3`). No index syntax is interpreted by the storage
+  layer, so integer, string and multi-object indexes all work.
+- **Rows are discovered, not declared.** Each request scans the key space for
+  the table's column prefixes and takes the union: a row exists as long as one
+  of its cells does. The result is sorted into OID order, which is *not* LMDB's
+  key order — bytewise, `portDescr.10` precedes `portDescr.2`.
+- **Configuration tables ship with rows.** A DEFVAL says what a cell of a row
+  starts at, not that the row exists, so `include/table_provision.h` declares
+  how many rows each writable table is provisioned with and the generated
+  bootstrap seeds them (never overwriting an existing cell).
+- **Telemetry tables do not.** `sensorTable` rows exist exactly while the Rust
+  app keeps their cells present; a fresh boot reports an empty table rather
+  than sensors that may not be there.
+- **Managers cannot create or destroy rows.** There is no RowStatus column by
+  design; a Set on a non-existent row is refused with `noCreation`.
+- **A missing cell of an existing row** reports `noSuchInstance` and does not
+  interrupt a walk. Writers should write a whole row in one transaction
+  (`CacheStore::put_row` on the Rust side).
+
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `include/` | Cross-component contracts: storage API, value encoding, storage mode switches, IPC and trap interfaces |
+| `include/` | Cross-component contracts: storage API, value encoding, storage mode switches, table row provisioning, IPC and trap interfaces |
 | `src/storage_lmdb.c` | The LMDB abstraction both environments share |
+| `src/table_rows.c` | Table row discovery: cell keys, and the sorted row set behind every table request |
+| `src/table_oid.c` | net-snmp OID <-> row instance conversions used by the generated table handlers |
 | `src/generated/` | mib2c output: MIB handlers and the cache bootstrap (do not hand-edit) |
 | `src/ipc_server.c` | Length-prefixed protobuf server on AF_UNIX |
 | `src/main.c`, `src/demo_trap.c` | Subagent entry point, event loop and notifications |
-| `mib2c/` | Custom mib2c templates |
+| `mib2c/` | Custom mib2c templates (scalars, tables, bootstrap) |
 | `mibs/AGENTX-DEMO-MIB.txt` | Demo MIB driving the whole exercise |
 | `proto/` | IPC schema (nanopb on the C side, prost on the Rust side) |
 | `rust-app/` | Telemetry application and IPC client |
@@ -74,8 +104,8 @@ offset 1..3  reserved, always zero
 offset 4..   payload, little endian
 ```
 
-Keys are the MIB object name in ASCII (`"sampleIntervalSec"`), with the
-instance appended for table cells (`"ifAdminStatusExt.3"`).
+Keys are the MIB object name in ASCII (`"sampleIntervalSec"`), with the row
+instance appended for table cells (`"portDescr.3"`, `"sensorTempMilliC.2"`).
 
 ## Build
 
@@ -109,9 +139,11 @@ scripts/run-integration.sh                   # cross-process scenarios
 The integration suite covers the scenarios in `docs/design.md` 5.3: concurrent
 writes under the single-writer rule, cache concurrency, subagent restart and
 recovery, byte-level agreement between the two independent codecs, IPC
-multiplexing and malformed input, and GET load. The simulated power-loss
-scenario needs device-mapper and skips with a message where that is
-unavailable — it reports a skip, never a pass.
+multiplexing and malformed input, GET load, and conceptual tables (row
+discovery and ordering, a row split across both environments, multi-column
+Sets, sparse rows, and rows appearing and disappearing under the agent). The
+simulated power-loss scenario needs device-mapper and skips with a message
+where that is unavailable — it reports a skip, never a pass.
 
 ## Continuous integration
 
@@ -119,9 +151,10 @@ unavailable — it reports a skip, never a pass.
 request:
 
 - **C tests** — builds against the matched LMDB (see [Build](#build) above,
-  not the distro `liblmdb-dev`), runs `ctest`, and runs both test binaries
-  under `valgrind --leak-check=full`. The build uses `-Werror` so a new
-  compiler warning fails CI.
+  not the distro `liblmdb-dev`), runs `ctest`, and runs the test binaries
+  under `valgrind --leak-check=full` (table row discovery allocates per
+  request, so a leak there would be per SNMP request). The build uses
+  `-Werror` so a new compiler warning fails CI.
 - **Rust** — `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`.
 - **Generated code drift** — reruns `scripts/gen_mib2c.sh` and
   `scripts/gen_proto.sh` and fails if the committed `src/generated`/

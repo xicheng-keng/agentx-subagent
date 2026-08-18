@@ -8,7 +8,7 @@ IMPORTS
         FROM SNMPv2-TC;
 
 agentxDemoMIB MODULE-IDENTITY
-    LAST-UPDATED "202608180000Z"
+    LAST-UPDATED "202608181200Z"
     ORGANIZATION "agentx-subagent reference implementation"
     CONTACT-INFO "https://github.com/xicheng-keng/agentx-subagent"
     DESCRIPTION
@@ -17,7 +17,13 @@ agentxDemoMIB MODULE-IDENTITY
          storage layer.  Every read-write scalar is generated with both a
          persistent and a volatile implementation selected at compile time
          by storage_mode.h; every read-only scalar is generated against
-         cache.lmdb only."
+         cache.lmdb only.  Conceptual tables follow the same rules one
+         level down: the storage backend is selected per column, so a
+         single row may straddle both environments."
+    REVISION "202608181200Z"
+    DESCRIPTION
+        "Added portConfigTable (read-write) and sensorTable (read-only) to
+         exercise conceptual-table support in the generated handlers."
     REVISION "202608180000Z"
     DESCRIPTION "Initial revision."
     ::= { enterprises 99999 }
@@ -104,6 +110,136 @@ statusText OBJECT-TYPE
     DESCRIPTION "Human readable health summary produced by the Rust app."
     DEFVAL      { "initialising" }
     ::= { demoStatus 4 }
+
+-- ------------------------------------------------------------------
+-- Configuration table (read-write columns).
+-- Rows are provisioned at bootstrap from the row count declared in
+-- include/table_provision.h; there is no RowStatus column, so managers
+-- cannot create or destroy rows (docs/design.md 3.2).
+-- Storage backend is chosen per COLUMN in include/storage_mode.h, so a
+-- single table can straddle config.lmdb and cache.lmdb.
+-- ------------------------------------------------------------------
+
+portConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF PortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Per-port configuration.  Demonstrates a read-write conceptual
+         table whose cells live in LMDB under the key
+         '<columnName>.<instance>' (see include/storage_lmdb.h)."
+    ::= { demoConfig 5 }
+
+portConfigEntry OBJECT-TYPE
+    SYNTAX      PortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "One row per port."
+    INDEX       { portIndex }
+    ::= { portConfigTable 1 }
+
+PortConfigEntry ::= SEQUENCE {
+    portIndex                 Unsigned32,
+    portDescr                 DisplayString,
+    portAdminStatus           INTEGER,
+    portAlarmThresholdMilliC  Integer32
+}
+
+portIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..64)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Port number; index of this row, never returned as a value."
+    ::= { portConfigEntry 1 }
+
+portDescr OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "Administratively assigned description of the port."
+    DEFVAL      { "port" }
+    ::= { portConfigEntry 2 }
+
+portAdminStatus OBJECT-TYPE
+    SYNTAX      INTEGER { up(1), down(2), testing(3) }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "Desired administrative state of the port."
+    DEFVAL      { up }
+    ::= { portConfigEntry 3 }
+
+portAlarmThresholdMilliC OBJECT-TYPE
+    SYNTAX      Integer32 (-40000..125000)
+    UNITS       "milli-degrees Celsius"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Per-port temperature alarm threshold.  Declared volatile in
+         storage_mode.h, i.e. written by the subagent into cache.lmdb and
+         back at this DEFVAL after a reboot, while the other two columns of
+         the same row are persistent."
+    DEFVAL      { 80000 }
+    ::= { portConfigEntry 4 }
+
+-- ------------------------------------------------------------------
+-- Telemetry table (read-only columns, always cache.lmdb).
+-- Rows exist exactly while the Rust application keeps writing them; the
+-- subagent never seeds them, so a fresh boot reports an empty table
+-- rather than fabricated sensors (docs/design.md 3.2).
+-- ------------------------------------------------------------------
+
+sensorTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF SensorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Per-sensor telemetry, written by the Rust application into
+         cache.lmdb and read back over AgentX by the subagent."
+    ::= { demoStatus 5 }
+
+sensorEntry OBJECT-TYPE
+    SYNTAX      SensorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "One row per sensor discovered by the telemetry application."
+    INDEX       { sensorIndex }
+    ::= { sensorTable 1 }
+
+SensorEntry ::= SEQUENCE {
+    sensorIndex        Unsigned32,
+    sensorName         DisplayString,
+    sensorTempMilliC   Integer32,
+    sensorSampleCount  Counter32
+}
+
+sensorIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..64)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Sensor number; index of this row, never returned as a value."
+    ::= { sensorEntry 1 }
+
+sensorName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Name of the sensor as reported by the telemetry application."
+    ::= { sensorEntry 2 }
+
+sensorTempMilliC OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milli-degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Most recent sample from this sensor."
+    ::= { sensorEntry 3 }
+
+sensorSampleCount OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of samples taken from this sensor since boot."
+    ::= { sensorEntry 4 }
 
 -- ------------------------------------------------------------------
 -- Notifications
