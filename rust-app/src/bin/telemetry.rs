@@ -11,7 +11,7 @@
 use agentx_rust_app::storage::{CacheStore, ConfigStore, Value};
 use clap::Parser;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -64,7 +64,7 @@ fn sample_temp_milli_c(rng: &mut StdRng) -> i32 {
     }
     // Plausible CPU idle/light-load range: 35.0C-55.0C, wobbling a little
     // sample to sample.
-    rng.gen_range(35_000..55_000)
+    rng.random_range(35_000..55_000)
 }
 
 fn read_sample_interval_sec(config_dir: &Path, mapsize: usize) -> u64 {
