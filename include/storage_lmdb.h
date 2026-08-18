@@ -138,7 +138,7 @@ storage_rc_t storage_txn_delete(storage_txn_t *txn, const char *key);
 /* --- diagnostics ------------------------------------------------------ */
 
 const char *storage_strerror(storage_rc_t rc);
-/* Fill *entries/*mapsize_used with mdb_stat/mdb_env_info derived counters. */
+/* Report the entry count and page bytes from mdb_stat/mdb_env_info. */
 storage_rc_t storage_env_stat(storage_env_t *env, uint64_t *entries,
                               uint64_t *bytes_used);
 
