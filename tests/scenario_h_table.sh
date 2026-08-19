@@ -122,12 +122,13 @@ else
   itest_pass "portAlarmThresholdMilliC.2 exists only in cache.lmdb, not in both"
 fi
 
-# One row, cells in two environments, one walk.
-row2="$(snmp_walk "${PORT_TABLE}" | grep -c "\.2 ")" || true
-if [[ "$(snmp_get "${COL_PORT_DESCR}.2")" == '"uplink-a"' && "$(snmp_get "${COL_PORT_ALARM}.2")" == "91000" ]]; then
+# One row, cells in two environments, read back over SNMP.
+row2_descr="$(snmp_get "${COL_PORT_DESCR}.2")"
+row2_alarm="$(snmp_get "${COL_PORT_ALARM}.2")"
+if [[ "${row2_descr}" == '"uplink-a"' && "${row2_alarm}" == "91000" ]]; then
   itest_pass "a single row straddling config.lmdb and cache.lmdb reads back whole over SNMP"
 else
-  itest_fail "row 2 did not read back correctly across the two environments (matched cells: ${row2})"
+  itest_fail "row 2 did not read back correctly across the two environments: portDescr=${row2_descr} portAlarmThresholdMilliC=${row2_alarm}"
 fi
 
 # --- c) two columns of one row in one PDU ------------------------------

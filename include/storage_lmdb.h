@@ -164,6 +164,11 @@ storage_rc_t storage_iter_open(storage_env_t *env, const char *prefix,
  * next storage_iter_next() or storage_iter_close() call on this iterator --
  * and *keylen is its length. Returns STORAGE_ERR_NOTFOUND, leaving *key and
  * *keylen untouched, once the prefix range is exhausted.
+ *
+ * Only STORAGE_ERR_NOTFOUND is sticky: further calls keep returning it. Any
+ * other error is reported as itself, on this and on subsequent calls, so a
+ * caller draining the iterator can tell "no more keys" from "the scan
+ * failed".
  */
 storage_rc_t storage_iter_next(storage_iter_t *it, const char **key,
                                size_t *keylen);

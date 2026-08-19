@@ -1008,8 +1008,17 @@ storage_rc_t storage_iter_next(storage_iter_t *it, const char **key,
     }
 
     if (mrc != MDB_SUCCESS) {
-        it->exhausted = 1;
-        return map_mdb_rc(mrc);
+        storage_rc_t rc = map_mdb_rc(mrc);
+
+        /* Only the end of the range is a terminal, sticky condition. A real
+         * cursor/IO failure must keep reporting itself: latching `exhausted`
+         * here would turn the next call into a plain STORAGE_ERR_NOTFOUND and
+         * a caller draining the iterator would read the failure as "no more
+         * rows". */
+        if (rc == STORAGE_ERR_NOTFOUND) {
+            it->exhausted = 1;
+        }
+        return rc;
     }
 
     /* Keys are ordered, so the first key that no longer carries the prefix
