@@ -930,6 +930,126 @@ storage_rc_t storage_txn_delete(storage_txn_t *txn, const char *key)
 }
 
 /* --------------------------------------------------------------------- */
+/* prefix iteration                                                      */
+/* --------------------------------------------------------------------- */
+
+struct storage_iter {
+    MDB_txn    *txn;
+    MDB_cursor *cursor;
+    char        prefix[STORAGE_KEY_MAX + 1];
+    size_t      prefix_len;
+    int         started;   /* 0 until the first storage_iter_next() call */
+    int         exhausted; /* 1 once the prefix range has been left      */
+};
+
+storage_rc_t storage_iter_open(storage_env_t *env, const char *prefix,
+                                storage_iter_t **out)
+{
+    STORAGE_ENV_CHECK(env);
+    if (out == NULL) {
+        return STORAGE_ERR_INVAL;
+    }
+    size_t prefix_len = (prefix == NULL) ? 0 : strlen(prefix);
+    if (prefix_len > STORAGE_KEY_MAX) {
+        return STORAGE_ERR_TOOBIG;
+    }
+
+    storage_iter_t *it = calloc(1, sizeof(*it));
+    if (it == NULL) {
+        return STORAGE_ERR_IO;
+    }
+    if (prefix_len > 0) {
+        memcpy(it->prefix, prefix, prefix_len);
+    }
+    it->prefix_len = prefix_len;
+
+    storage_rc_t rc = begin_read_txn(env, &it->txn);
+    if (rc != STORAGE_OK) {
+        free(it);
+        return rc;
+    }
+    int mrc = mdb_cursor_open(it->txn, env->dbi, &it->cursor);
+    if (mrc != MDB_SUCCESS) {
+        mdb_txn_abort(it->txn);
+        free(it);
+        return map_mdb_rc(mrc);
+    }
+
+    *out = it;
+    return STORAGE_OK;
+}
+
+storage_rc_t storage_iter_next(storage_iter_t *it, const char **key,
+                                size_t *keylen)
+{
+    if (it == NULL || key == NULL || keylen == NULL) {
+        return STORAGE_ERR_INVAL;
+    }
+    if (it->exhausted) {
+        return STORAGE_ERR_NOTFOUND;
+    }
+
+    MDB_val mkey, mval;
+    int mrc;
+
+    if (!it->started) {
+        it->started = 1;
+        if (it->prefix_len > 0) {
+            /* MDB_SET_RANGE positions on the first key >= prefix, which is
+             * the first key with that prefix when one exists. */
+            mkey.mv_size = it->prefix_len;
+            mkey.mv_data = it->prefix;
+            mrc = mdb_cursor_get(it->cursor, &mkey, &mval, MDB_SET_RANGE);
+        } else {
+            mrc = mdb_cursor_get(it->cursor, &mkey, &mval, MDB_FIRST);
+        }
+    } else {
+        mrc = mdb_cursor_get(it->cursor, &mkey, &mval, MDB_NEXT);
+    }
+
+    if (mrc != MDB_SUCCESS) {
+        storage_rc_t rc = map_mdb_rc(mrc);
+
+        /* Only the end of the range is a terminal, sticky condition. A real
+         * cursor/IO failure must keep reporting itself: latching `exhausted`
+         * here would turn the next call into a plain STORAGE_ERR_NOTFOUND and
+         * a caller draining the iterator would read the failure as "no more
+         * rows". */
+        if (rc == STORAGE_ERR_NOTFOUND) {
+            it->exhausted = 1;
+        }
+        return rc;
+    }
+
+    /* Keys are ordered, so the first key that no longer carries the prefix
+     * ends the scan -- there is nothing matching further on. */
+    if (it->prefix_len > 0 &&
+        (mkey.mv_size < it->prefix_len ||
+         memcmp(mkey.mv_data, it->prefix, it->prefix_len) != 0)) {
+        it->exhausted = 1;
+        return STORAGE_ERR_NOTFOUND;
+    }
+
+    *key = (const char *)mkey.mv_data;
+    *keylen = mkey.mv_size;
+    return STORAGE_OK;
+}
+
+void storage_iter_close(storage_iter_t *it)
+{
+    if (it == NULL) {
+        return;
+    }
+    if (it->cursor != NULL) {
+        mdb_cursor_close(it->cursor);
+    }
+    if (it->txn != NULL) {
+        mdb_txn_abort(it->txn);
+    }
+    free(it);
+}
+
+/* --------------------------------------------------------------------- */
 /* diagnostics                                                           */
 /* --------------------------------------------------------------------- */
 

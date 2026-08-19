@@ -13,7 +13,10 @@
  *   - fire a burst of GETs against config.lmdb/cache.lmdb and report
  *     latency percentiles (scenario (f));
  *   - dump a raw value's on-disk bytes as hex, for byte-for-byte
- *     cross-language comparison against the Rust side (scenario (d)).
+ *     cross-language comparison against the Rust side (scenario (d));
+ *   - list the keys under a prefix and, for a conceptual table, the row
+ *     instances those keys resolve to, so a scenario can compare what the
+ *     key space holds against what a MIB walk reports (scenario (h)).
  *
  * It intentionally never opens config.lmdb for writing in a way that
  * bypasses the C subagent's single-writer role in the test scenarios that
@@ -30,6 +33,8 @@
  *   storage_cli hexdump  <path> <flags> <key>
  *   storage_cli watch    <path> <flags> <key> <iterations> <delay_us>
  *   storage_cli bench    <path> <flags> int|uint|u64|bytes <key> <count>
+ *   storage_cli list     <path> <flags> <prefix>
+ *   storage_cli rows     <path> <flags> <column> [<column> ...]
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +45,7 @@
 #include <inttypes.h>
 
 #include "storage_lmdb.h"
+#include "table_rows.h"
 
 static unsigned
 parse_flags(const char *s)
@@ -277,17 +283,93 @@ cmd_bench(int argc, char **argv)
     return errors > 0 ? 1 : 0;
 }
 
+static int
+cmd_list(int argc, char **argv)
+{
+    if (argc != 4) { fprintf(stderr, "usage: list <path> <flags> <prefix>\n"); return 2; }
+    storage_env_t *env;
+    storage_rc_t rc = storage_env_open(argv[1], 0, parse_flags(argv[2]), &env);
+    if (rc != STORAGE_OK) { fprintf(stderr, "open failed: %s\n", storage_strerror(rc)); return 1; }
+
+    storage_iter_t *it = NULL;
+    rc = storage_iter_open(env, argv[3], &it);
+    if (rc != STORAGE_OK) {
+        fprintf(stderr, "iter_open failed: %s\n", storage_strerror(rc));
+        storage_env_close(env);
+        return 1;
+    }
+
+    const char *key;
+    size_t keylen;
+    while ((rc = storage_iter_next(it, &key, &keylen)) == STORAGE_OK) {
+        /* Keys point into the map and are not NUL terminated. */
+        printf("%.*s\n", (int)keylen, key);
+    }
+    storage_iter_close(it);
+    storage_env_close(env);
+    if (rc != STORAGE_ERR_NOTFOUND) {
+        fprintf(stderr, "iter_next failed: %s\n", storage_strerror(rc));
+        return 1;
+    }
+    return 0;
+}
+
+static int
+cmd_rows(int argc, char **argv)
+{
+    if (argc < 4) { fprintf(stderr, "usage: rows <path> <flags> <column> [<column> ...]\n"); return 2; }
+    storage_env_t *env;
+    storage_rc_t rc = storage_env_open(argv[1], 0, parse_flags(argv[2]), &env);
+    if (rc != STORAGE_OK) { fprintf(stderr, "open failed: %s\n", storage_strerror(rc)); return 1; }
+
+    size_t ncols = (size_t)(argc - 3);
+    table_column_ref_t *cols = calloc(ncols, sizeof(*cols));
+    if (cols == NULL) { storage_env_close(env); return 1; }
+    for (size_t i = 0; i < ncols; i++) {
+        cols[i].env = env;
+        cols[i].column = argv[3 + i];
+    }
+
+    table_rowset_t *rows = NULL;
+    rc = table_rowset_load(cols, ncols, &rows);
+    free(cols);
+    if (rc != STORAGE_OK) {
+        fprintf(stderr, "rowset_load failed: %s\n", storage_strerror(rc));
+        storage_env_close(env);
+        return 1;
+    }
+
+    for (size_t i = 0; i < table_rowset_count(rows); i++) {
+        char dotted[STORAGE_KEY_MAX + 1];
+
+        if (table_instance_format(table_rowset_at(rows, i), dotted,
+                                   sizeof(dotted)) == STORAGE_OK) {
+            printf("%s\n", dotted);
+        }
+    }
+    if (table_rowset_skipped(rows) > 0) {
+        fprintf(stderr, "skipped %zu malformed cell key(s)\n",
+                 table_rowset_skipped(rows));
+    }
+
+    table_rowset_free(rows);
+    storage_env_close(env);
+    return 0;
+}
+
 static void
 usage(const char *argv0)
 {
     fprintf(stderr,
-        "usage: %s <get|set|hexdump|watch|bench> ...\n"
+        "usage: %s <get|set|hexdump|watch|bench|list|rows> ...\n"
         "  flags: persistent | nosync | rdonly | nosync-rdonly\n"
         "  get     <path> <flags> <int|uint|u64|bytes> <key>\n"
         "  set     <path> <flags> <int|uint|u64|bytes> <key> <value>\n"
         "  hexdump <path> <flags> <key>\n"
         "  watch   <path> <flags> <key> <iterations> <delay_us>\n"
-        "  bench   <path> <flags> <int|uint|u64|bytes> <key> <count>\n",
+        "  bench   <path> <flags> <int|uint|u64|bytes> <key> <count>\n"
+        "  list    <path> <flags> <prefix>\n"
+        "  rows    <path> <flags> <column> [<column> ...]\n",
         argv0);
 }
 
@@ -304,6 +386,8 @@ main(int argc, char **argv)
     if (strcmp(cmd, "hexdump") == 0)  return cmd_hexdump(rest_argc, rest_argv);
     if (strcmp(cmd, "watch") == 0)    return cmd_watch(rest_argc, rest_argv);
     if (strcmp(cmd, "bench") == 0)    return cmd_bench(rest_argc, rest_argv);
+    if (strcmp(cmd, "list") == 0)     return cmd_list(rest_argc, rest_argv);
+    if (strcmp(cmd, "rows") == 0)     return cmd_rows(rest_argc, rest_argv);
 
     usage(argv[0]);
     return 2;

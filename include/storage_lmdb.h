@@ -22,7 +22,13 @@
  *
  * Key encoding:
  *   ASCII MIB object name, no trailing NUL, e.g. "tempThreshold".
- *   Table cells append the instance: "ifAdminStatusExt.3".
+ *   Table cells append '.' and the row's instance sub-identifiers in dotted
+ *   decimal, exactly as they appear on the wire after the column OID:
+ *   "portDescr.3" for a single integer index, "fooBar.2.7" for a two
+ *   sub-identifier instance. Because the instance is taken verbatim from the
+ *   OID, no index type needs to be understood by the storage layer; see
+ *   include/table_rows.h for the build/parse helpers the generated table
+ *   handlers use, and docs/design.md 3.2.
  */
 #ifndef STORAGE_LMDB_H
 #define STORAGE_LMDB_H
@@ -134,6 +140,41 @@ storage_rc_t storage_txn_get_bytes(storage_txn_t *txn, const char *key,
 storage_rc_t storage_txn_set_bytes(storage_txn_t *txn, const char *key,
                                    const void *buf, size_t len);
 storage_rc_t storage_txn_delete(storage_txn_t *txn, const char *key);
+
+/* --- prefix iteration (conceptual table row discovery) ---------------- */
+
+typedef struct storage_iter storage_iter_t;
+
+/*
+ * Open a read-only cursor over every key that starts with `prefix`, in LMDB's
+ * (byte-wise ascending) key order. A NULL or empty prefix walks the whole
+ * database.
+ *
+ * The iterator pins a read transaction for its entire lifetime. LMDB cannot
+ * reuse pages that a live reader might still see, so a long lived iterator
+ * makes the map grow: open it, drain it, close it, and never hold one across
+ * an event loop iteration.
+ */
+storage_rc_t storage_iter_open(storage_env_t *env, const char *prefix,
+                               storage_iter_t **out);
+
+/*
+ * Advance to the next matching key. On STORAGE_OK, *key points at the key
+ * bytes inside the LMDB map -- not NUL terminated, and only valid until the
+ * next storage_iter_next() or storage_iter_close() call on this iterator --
+ * and *keylen is its length. Returns STORAGE_ERR_NOTFOUND, leaving *key and
+ * *keylen untouched, once the prefix range is exhausted.
+ *
+ * Only STORAGE_ERR_NOTFOUND is sticky: further calls keep returning it. Any
+ * other error is reported as itself, on this and on subsequent calls, so a
+ * caller draining the iterator can tell "no more keys" from "the scan
+ * failed".
+ */
+storage_rc_t storage_iter_next(storage_iter_t *it, const char **key,
+                               size_t *keylen);
+
+/* Closes the cursor and ends the pinned read transaction. NULL is a no-op. */
+void storage_iter_close(storage_iter_t *it);
 
 /* --- diagnostics ------------------------------------------------------ */
 

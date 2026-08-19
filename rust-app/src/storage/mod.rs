@@ -13,8 +13,10 @@
 //!   opened with `MDB_RDONLY` as defense in depth.
 
 pub mod codec;
+pub mod table;
 
 pub use codec::{CodecError, StorageType, Value};
+pub use table::{TableKeyError, KEY_MAX};
 
 use heed::types::{Bytes, Str};
 use heed::{Database, Env, EnvFlags, EnvOpenOptions};
@@ -44,6 +46,8 @@ pub enum StorageError {
     },
     #[error("the requested database does not exist in this environment")]
     MissingDatabase,
+    #[error("table cell key error: {0}")]
+    TableKey(#[from] TableKeyError),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;
@@ -87,6 +91,43 @@ impl Inner {
         self.db.put(&mut wtxn, key, &value.encode())?;
         wtxn.commit()?;
         Ok(())
+    }
+
+    /// Writes several already-encoded entries in one transaction, so a reader
+    /// never sees a partially written group. Used for table rows, where the
+    /// group is one row's cells (see [`table`]).
+    fn put_many_raw(&self, entries: &[(String, Vec<u8>)]) -> Result<()> {
+        let mut wtxn = self.env.write_txn()?;
+        for (key, encoded) in entries {
+            self.db.put(&mut wtxn, key, encoded)?;
+        }
+        wtxn.commit()?;
+        Ok(())
+    }
+
+    /// Deletes several keys in one transaction; absent keys are not an error.
+    fn delete_many_raw(&self, keys: &[String]) -> Result<()> {
+        let mut wtxn = self.env.write_txn()?;
+        for key in keys {
+            self.db.delete(&mut wtxn, key)?;
+        }
+        wtxn.commit()?;
+        Ok(())
+    }
+
+    /// Every key starting with `prefix`, in LMDB (bytewise) key order.
+    ///
+    /// Keys are copied out rather than borrowed: the read transaction ends
+    /// with this call, and holding one open across a caller's work would pin
+    /// pages the writer then cannot reuse.
+    fn keys_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        let rtxn = self.env.read_txn()?;
+        let mut keys = Vec::new();
+        for entry in self.db.prefix_iter(&rtxn, prefix)? {
+            let (key, _) = entry?;
+            keys.push(key.to_string());
+        }
+        Ok(keys)
     }
 }
 
@@ -191,6 +232,23 @@ impl CacheStore {
 
     pub fn put_oid(&self, key: &str, v: &[u32]) -> Result<()> {
         self.put(key, &Value::Oid(v.to_vec()))
+    }
+
+    /// Removes `key`; absent keys are not an error.
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.inner.delete_many_raw(&[key.to_string()])
+    }
+
+    pub(crate) fn put_many_raw(&self, entries: &[(String, Vec<u8>)]) -> Result<()> {
+        self.inner.put_many_raw(entries)
+    }
+
+    pub(crate) fn delete_many_raw(&self, keys: &[String]) -> Result<()> {
+        self.inner.delete_many_raw(keys)
+    }
+
+    pub(crate) fn keys_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        self.inner.keys_with_prefix(prefix)
     }
 }
 

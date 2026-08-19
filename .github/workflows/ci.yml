@@ -71,6 +71,13 @@ jobs:
           valgrind --error-exitcode=1 --leak-check=full \
             ./build/test_storage
 
+      # Table row discovery allocates and sorts a rowset per request, so a
+      # leak here would be per SNMP request, not once at startup.
+      - name: valgrind -- test_table_rows
+        run: |
+          valgrind --error-exitcode=1 --leak-check=full \
+            ./build/test_table_rows
+
       - name: valgrind -- test_ipc_framing
         run: |
           valgrind --error-exitcode=1 --leak-check=full \
@@ -167,7 +174,9 @@ jobs:
   # The cross-process integration suite (docs/design.md 5.3) is the only
   # thing that exercises the C subagent and the Rust app against each
   # other for real -- concurrent Set/Get, cache concurrency, restart
-  # recovery, byte-level codec agreement, IPC multiplexing, and load.
+  # recovery, byte-level codec agreement, IPC multiplexing, load, and the
+  # conceptual tables of docs/design.md 3.2 (row discovery, per-column
+  # storage split, sparse rows).
   # ---------------------------------------------------------------------
   integration:
     name: Cross-process integration suite
