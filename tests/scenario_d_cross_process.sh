@@ -15,6 +15,11 @@
 #   3. Assert the two hex dumps are byte-for-byte identical.
 #   4. Also do it for a volatile (cache.lmdb) object and for a bytes-typed
 #      (DisplayString) value, to cover more than one storage_type_t tag.
+#   5. Finally, the other direction: the Rust telemetry app writes the
+#      read-only status scalars and the C handlers read them back over SNMP.
+#      Writer and handler have to agree on the *width* as well as the bytes --
+#      a Uint64 cell read by storage_get_uint() is a type mismatch, which the
+#      handler can only report as genErr.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -24,6 +29,7 @@ trap itest_cleanup EXIT
 itest_require_subagent
 itest_require_storage_cli
 itest_require_it_helper
+itest_require_rust_bins
 
 AGENTX_SOCK="${ITEST_SCRATCH}/agentx.sock"
 SNMP_PORT="$(itest_free_port)"
@@ -85,5 +91,31 @@ if [[ "${snmp_readback}" == "-15000" ]]; then
 else
   itest_fail "SNMP-visible value '${snmp_readback}' does not match the Set value -15000"
 fi
+
+# --- case 5: telemetry-written read-only scalars are readable over SNMP -----
+# The writer is the Rust app; the reader is the generated C handler. Every
+# cell the app writes has to carry the storage type that handler expects
+# (Counter32/Unsigned32 -> STORAGE_TYPE_UINT32), or the GET below answers
+# genErr instead of a value.
+"${ITEST_TELEMETRY_BIN}" --cache-dir "${CACHE_DIR}" --config-dir "${CONFIG_DIR}" --once >/dev/null
+sleep 0.2
+
+sample_count="$(snmpget -v2c -c public -Ov -Oq -t 2 -r 1 "${TARGET}" .1.3.6.1.4.1.99999.2.2.0 2>&1)"
+if [[ "${sample_count}" == "1" ]]; then
+  itest_pass "sampleCount (Counter32) reads back as 1 after one telemetry sample"
+else
+  itest_fail "sampleCount read back as '${sample_count}', expected 1 -- a width mismatch between the Rust writer and storage_get_uint() surfaces as genErr"
+fi
+
+last_update="$(snmpget -v2c -c public -Ov -Oq -t 2 -r 1 "${TARGET}" .1.3.6.1.4.1.99999.2.3.0 2>&1)"
+if [[ "${last_update}" =~ ^[0-9]+$ ]] && (( last_update >= 1600000000 )); then
+  itest_pass "lastUpdateEpoch (Unsigned32) reads back as a plausible unix time (${last_update})"
+else
+  itest_fail "lastUpdateEpoch read back as '${last_update}', expected a unix timestamp"
+fi
+
+c_hex="$("${ITEST_STORAGE_CLI}" hexdump "${CACHE_DIR}" nosync sampleCount)"
+rust_hex="$("${ITEST_IT_HELPER_BIN}" cache-hex "${CACHE_DIR}" sampleCount)"
+assert_bytes_match "sampleCount (Counter32 written by the Rust app, cache.lmdb)" "${c_hex}" "${rust_hex}"
 
 itest_report

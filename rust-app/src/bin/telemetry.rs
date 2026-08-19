@@ -4,8 +4,8 @@
 //! Every `sampleIntervalSec` (read from `config.lmdb`, read-only, default 60
 //! if absent) it samples a CPU temperature and writes:
 //!   - `cpuTempMilliC`   : Int32, milli-degrees Celsius
-//!   - `sampleCount`     : Uint64, running sample counter
-//!   - `lastUpdateEpoch` : Uint64, unix seconds of the last write
+//!   - `sampleCount`     : Uint32, running sample counter (Counter32)
+//!   - `lastUpdateEpoch` : Uint32, unix seconds of the last write (Unsigned32)
 //!   - `statusText`      : Bytes, a short human-readable status string
 //!
 //! and one row per sensor of the AGENTX-DEMO-MIB `sensorTable`
@@ -111,8 +111,14 @@ fn run_once(
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
     cache.put_int32("cpuTempMilliC", temp_milli_c)?;
-    cache.put_uint64("sampleCount", sample_count)?;
-    cache.put_uint64("lastUpdateEpoch", now)?;
+    // Both of these are 32-bit in the MIB (Counter32, Unsigned32) and the
+    // generated handlers read them with storage_get_uint, which rejects a
+    // differently typed cell -- an SNMP GET of a Uint64 cell would answer
+    // genErr. sampleCount wraps, which is exactly Counter32's semantics;
+    // lastUpdateEpoch saturates instead, because a wrapped timestamp would
+    // read as a plausible date in the past rather than an obvious ceiling.
+    cache.put_uint32("sampleCount", sample_count as u32)?;
+    cache.put_uint32("lastUpdateEpoch", u32::try_from(now).unwrap_or(u32::MAX))?;
     let status = format!("ok temp={temp_milli_c}mC count={sample_count}");
     cache.put_bytes("statusText", status.as_bytes())?;
 
