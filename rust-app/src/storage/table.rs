@@ -17,6 +17,14 @@
 
 use super::{CacheStore, Result, StorageError, Value};
 
+/// Longest key either side will accept, from `STORAGE_KEY_MAX` in
+/// `include/storage_lmdb.h`. A longer key is not merely awkward: the C
+/// helpers refuse it with `STORAGE_ERR_TOOBIG`, so a cell written past this
+/// length would be one the subagent can neither enumerate nor read. Both
+/// halves therefore reject the same keys rather than disagreeing about what
+/// can exist in the shared key space.
+pub const KEY_MAX: usize = 255;
+
 /// Errors specific to composing or reading table cell keys.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TableKeyError {
@@ -26,6 +34,8 @@ pub enum TableKeyError {
     DottedColumn(String),
     #[error("a row instance must have at least one sub-identifier")]
     EmptyInstance,
+    #[error("cell key would be {len} bytes, over the {KEY_MAX} byte limit both sides enforce")]
+    KeyTooLong { len: usize },
 }
 
 /// Builds the cell key for `column` at `instance`.
@@ -53,6 +63,9 @@ pub fn cell_key(column: &str, instance: &[u32]) -> std::result::Result<String, T
     for sub in instance {
         key.push('.');
         key.push_str(&sub.to_string());
+    }
+    if key.len() > KEY_MAX {
+        return Err(TableKeyError::KeyTooLong { len: key.len() });
     }
     Ok(key)
 }
@@ -164,6 +177,29 @@ mod tests {
             Err(TableKeyError::DottedColumn("a.b".into()))
         );
         assert_eq!(cell_key("x", &[]), Err(TableKeyError::EmptyInstance));
+    }
+
+    #[test]
+    fn cell_key_rejects_keys_longer_than_the_c_side_accepts() {
+        // Exactly at the limit is fine; one byte more is a key the subagent
+        // would refuse with STORAGE_ERR_TOOBIG, so this side refuses it too.
+        let column = "c".repeat(KEY_MAX - 2);
+        assert_eq!(cell_key(&column, &[1]).unwrap().len(), KEY_MAX);
+
+        let column = "c".repeat(KEY_MAX - 1);
+        assert_eq!(
+            cell_key(&column, &[1]),
+            Err(TableKeyError::KeyTooLong { len: KEY_MAX + 1 })
+        );
+
+        // A long multi-sub-identifier instance trips the same limit -- an
+        // implied string index spends one sub-identifier per octet, so this is
+        // the shape that reaches it in practice.
+        let instance: Vec<u32> = (1..=120).collect();
+        assert!(matches!(
+            cell_key("sensorName", &instance),
+            Err(TableKeyError::KeyTooLong { .. })
+        ));
     }
 
     #[test]

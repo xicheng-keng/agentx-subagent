@@ -16,7 +16,7 @@ pub mod codec;
 pub mod table;
 
 pub use codec::{CodecError, StorageType, Value};
-pub use table::TableKeyError;
+pub use table::{TableKeyError, KEY_MAX};
 
 use heed::types::{Bytes, Str};
 use heed::{Database, Env, EnvFlags, EnvOpenOptions};

@@ -168,6 +168,17 @@ else
   itest_fail "portDescr.4 changed even though the PDU failed: ${before_descr} -> $(snmp_get "${COL_PORT_DESCR}.4")"
 fi
 
+# A DisplayString column's SIZE clause is enforced on the way in. The
+# generated check treats SIZE as alternatives (any range matches), so this
+# also proves the single-range case still rejects what it should.
+long_out="$(snmpset -v2c -c public -t 2 -r 1 "${TARGET}" "${COL_PORT_DESCR}.4" \
+             s "$(printf 'x%.0s' $(seq 64))" 2>&1 || true)"
+if echo "${long_out}" | grep -qi "wrongLength"; then
+  itest_pass "a 64 byte portDescr is refused with wrongLength (SIZE (0..63))"
+else
+  itest_fail "expected wrongLength for a 64 byte portDescr, got: ${long_out}"
+fi
+
 # --- e) no row creation or destruction by a manager --------------------
 create_out="$(snmpset -v2c -c public -t 2 -r 1 "${TARGET}" "${COL_PORT_DESCR}.9" s "ghost" 2>&1 || true)"
 if echo "${create_out}" | grep -qi "noCreation"; then

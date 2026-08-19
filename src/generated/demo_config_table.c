@@ -461,14 +461,26 @@ handle_portConfigTable(netsnmp_mib_handler *handler,
                 {
                     int ret = netsnmp_check_vb_type(request->requestvb,
                                                      ASN_OCTET_STR);
+                    size_t vlen = request->requestvb->val_len;
+                    int len_ok = 0;
 
                     if (ret != SNMP_ERR_NOERROR) {
                         netsnmp_set_request_error(reqinfo, request,
                                                    SNMP_ERR_WRONGTYPE);
                         break;
                     }
-                    if (
-                        request->requestvb->val_len > (size_t)(63)) {
+                    /*
+                     * A SIZE clause lists alternatives, so a length is legal
+                     * when it falls inside ANY of them. Rejecting per range
+                     * instead would refuse a length another alternative
+                     * allows -- SIZE (0 | 4 | 16) would accept nothing.
+                     */
+                    /* No lower bound to test: val_len is unsigned, and
+                     * comparing it against 0 is a -Wtype-limits warning. */
+                    if (vlen <= (size_t)(63)) {
+                        len_ok = 1;
+                    }
+                    if (!len_ok) {
                         netsnmp_set_request_error(reqinfo, request,
                                                    SNMP_ERR_WRONGLENGTH);
                         break;
@@ -503,6 +515,7 @@ handle_portConfigTable(netsnmp_mib_handler *handler,
                 {
                     int ret = netsnmp_check_vb_type(request->requestvb, ASN_INTEGER);
                     long v;
+                    int in_range = 0;
 
                     if (ret != SNMP_ERR_NOERROR) {
                         netsnmp_set_request_error(reqinfo, request,
@@ -510,7 +523,11 @@ handle_portConfigTable(netsnmp_mib_handler *handler,
                         break;
                     }
                     v = *request->requestvb->val.integer;
-                    if (v < (-40000) || v > (125000)) {
+                    /* Alternatives, as for SIZE above: in ANY range is legal. */
+                    if (v >= (-40000) && v <= (125000)) {
+                        in_range = 1;
+                    }
+                    if (!in_range) {
                         netsnmp_set_request_error(reqinfo, request,
                                                    SNMP_ERR_WRONGVALUE);
                         break;
