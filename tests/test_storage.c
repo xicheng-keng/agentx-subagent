@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <dirent.h>
-#include <sys/stat.h>
 
 static int g_failures = 0;
 
@@ -32,26 +31,22 @@ static char g_tmpdir[4096];
 
 static void rm_rf(const char *path)
 {
-    struct stat st;
-    if (lstat(path, &st) != 0) {
-        return;
-    }
-    if (S_ISDIR(st.st_mode)) {
-        DIR *d = opendir(path);
-        if (d != NULL) {
-            struct dirent *ent;
-            while ((ent = readdir(d)) != NULL) {
-                if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
-                    continue;
-                }
-                char child[8192];
-                snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
-                rm_rf(child);
+    /* Try to remove as a directory first (recurse into contents). */
+    DIR *d = opendir(path);
+    if (d != NULL) {
+        struct dirent *ent;
+        while ((ent = readdir(d)) != NULL) {
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+                continue;
             }
-            closedir(d);
+            char child[8192];
+            snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+            rm_rf(child);
         }
+        closedir(d);
         rmdir(path);
     } else {
+        /* Not a directory (or can't open it) — try unlinking as a file. */
         unlink(path);
     }
 }
