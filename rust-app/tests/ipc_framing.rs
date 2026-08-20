@@ -61,8 +61,9 @@ fn ping_round_trip() {
     });
 
     let mut client = IpcClient::connect(&path).unwrap();
-    let echoed = client.ping(0x1234_5678).unwrap();
-    assert_eq!(echoed, 0x1234_5678);
+    let nonce_to_ping: u32 = rand::random();
+    let echoed = client.ping(nonce_to_ping).unwrap();
+    assert_eq!(echoed, nonce_to_ping);
 
     server.join().unwrap();
     let _ = std::fs::remove_file(&path);
@@ -105,8 +106,9 @@ fn split_frame_is_reassembled() {
     });
 
     let mut client = IpcClient::connect(&path).unwrap();
-    let echoed = client.ping(42).unwrap();
-    assert_eq!(echoed, 42);
+    let nonce_to_ping: u32 = rand::random();
+    let echoed = client.ping(nonce_to_ping).unwrap();
+    assert_eq!(echoed, nonce_to_ping);
 
     server.join().unwrap();
     let _ = std::fs::remove_file(&path);
@@ -130,7 +132,7 @@ fn oversized_length_prefix_is_rejected() {
     });
 
     let mut client = IpcClient::connect(&path).unwrap();
-    let err = client.ping(1).unwrap_err();
+    let err = client.ping(rand::random()).unwrap_err();
     assert!(
         matches!(err, agentx_rust_app::ipc::IpcError::FrameTooLarge(_)),
         "{err:?}"
@@ -158,7 +160,7 @@ fn server_closing_mid_response_is_a_clean_error() {
     });
 
     let mut client = IpcClient::connect(&path).unwrap();
-    let err = client.ping(7).unwrap_err();
+    let err = client.ping(rand::random()).unwrap_err();
     assert!(
         matches!(err, agentx_rust_app::ipc::IpcError::ConnectionClosed),
         "{err:?}"

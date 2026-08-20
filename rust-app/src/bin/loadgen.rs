@@ -46,8 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut client = IpcClient::connect(&args.socket)?;
-    let ping_nonce = client.ping(0xC0FFEE)?;
-    println!("[loadgen] ping echoed nonce={ping_nonce:#x}");
+    let ping_nonce: u32 = rand::random();
+    let echoed_nonce = client.ping(ping_nonce)?;
+    println!("[loadgen] ping echoed nonce={echoed_nonce:#x}");
 
     let response = client.write_config(&args.key, ipc_value)?;
     let status = Status::try_from(response.status).unwrap_or(Status::Unspecified);
