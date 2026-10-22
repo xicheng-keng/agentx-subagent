@@ -159,8 +159,10 @@ impl Value {
                     });
                 }
                 let subids = payload
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes(c.try_into().expect("chunk is 4 bytes")))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
                     .collect();
                 Ok(Value::Oid(subids))
             }

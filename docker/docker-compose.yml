@@ -47,6 +47,8 @@ services:
         mkdir -p /var/agentx
         sed -e 's#@@AGENTX_SOCK@@#unix:/var/agentx/master.sock#' \
             -e 's#@@TRAP_PORT@@#udp:127.0.0.1:16200#' \
+            -e "s#@@V3_AUTH_PASS@@#$$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')#" \
+            -e "s#@@V3_PRIV_PASS@@#$$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')#" \
             /work/snmpd.conf.template > /work/snmpd.conf
         exec snmpd -f -Lo -C -c /work/snmpd.conf -p /work/snmpd.pid udp:0.0.0.0:161
     ports:
