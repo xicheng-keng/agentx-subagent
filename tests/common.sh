@@ -223,8 +223,14 @@ itest_require_it_helper() {
 itest_start_snmpd() {
   local scratch="$1" agentx_sock="$2" snmp_port="$3" trap_port="$4"
   local conf="${scratch}/snmpd.conf"
+  # The USM passphrases are random per run rather than committed to the repo.
+  local v3_auth v3_priv
+  v3_auth="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+  v3_priv="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
   sed -e "s#@@AGENTX_SOCK@@#unix:${agentx_sock}#" \
       -e "s#@@TRAP_PORT@@#udp:127.0.0.1:${trap_port}#" \
+      -e "s#@@V3_AUTH_PASS@@#${v3_auth}#" \
+      -e "s#@@V3_PRIV_PASS@@#${v3_priv}#" \
       "${ITEST_TESTS_DIR}/snmpd.conf" > "${conf}"
 
   /usr/sbin/snmpd -f -Lo -C -c "${conf}" \
